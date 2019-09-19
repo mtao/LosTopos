@@ -23,9 +23,9 @@ simplex_intersection1d(int k,
                        double* alpha2)
 {
     assert(1<=k && k<=2);
-    assert(alpha0 != NULL && alpha1 != NULL && alpha2!= NULL );
+    assert(alpha0 != nullptr && alpha1 != nullptr && alpha2!= nullptr );
     
-    if(alpha0 == NULL || alpha1 == NULL || alpha2 == NULL) //prevent null pointer warning
+    if(alpha0 == nullptr || alpha1 == nullptr || alpha2 == nullptr) //prevent null pointer warning
        return -1;
     
     if(k==1){
@@ -384,21 +384,21 @@ simplex_intersection_time3d(int k,
     assert(time4==0 || time4==1);
     // try projecting each coordinate out in turn
     double ax0, ax1, ax2, ax3, ax4;
-    double r0[3]={x0[0], x0[2], time0}, r1[3]={x1[0], x1[2], time1},
-    r2[3]={x2[0], x2[2], time2}, r3[3]={x3[0], x3[2], time3},
-    r4[3]={x4[0], x4[2], time4};
+    double r0[3]={x0[0], x0[2], double(time0)}, r1[3]={x1[0], x1[2], double(time1)},
+    r2[3]={x2[0], x2[2], double(time2)}, r3[3]={x3[0], x3[2], double(time3)},
+    r4[3]={x4[0], x4[2], double(time4)};
     if(!simplex_intersection3d(k, r0, r1, r2, r3, r4,
                                &ax0, &ax1, &ax2, &ax3, &ax4)) return 0;
     double ay0, ay1, ay2, ay3, ay4;
-    double p0[3]={x0[0], x0[2], time0}, p1[3]={x1[0], x1[2], time1},
-    p2[3]={x2[0], x2[2], time2}, p3[3]={x3[0], x3[2], time3},
-    p4[3]={x4[0], x4[2], time4};
+    double p0[3]={x0[0], x0[2], double(time0)}, p1[3]={x1[0], x1[2], double(time1)},
+    p2[3]={x2[0], x2[2], double(time2)}, p3[3]={x3[0], x3[2], double(time3)},
+    p4[3]={x4[0], x4[2], double(time4)};
     if(!simplex_intersection3d(k, p0, p1, p2, p3, p4,
                                &ay0, &ay1, &ay2, &ay3, &ay4)) return 0;
     double az0, az1, az2, az3, az4;
-    double q0[3]={x0[0], x0[1], time0}, q1[3]={x1[0], x1[1], time1},
-    q2[3]={x2[0], x2[1], time2}, q3[3]={x3[0], x3[1], time3},
-    q4[3]={x4[0], x4[1], time4};
+    double q0[3]={x0[0], x0[1], double(time0)}, q1[3]={x1[0], x1[1], double(time1)},
+    q2[3]={x2[0], x2[1], double(time2)}, q3[3]={x3[0], x3[1], double(time3)},
+    q4[3]={x4[0], x4[1], double(time4)};
     if(!simplex_intersection3d(k, q0, q1, q2, q3, q4,
                                &az0, &az1, &az2, &az3, &az4)) return 0;
     double at0, at1, at2, at3, at4;

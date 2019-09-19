@@ -95,32 +95,24 @@ m_cutter( *this ),
 m_t1transition( *this, initial_parameters.m_velocity_field_callback, initial_parameters.m_remesh_boundaries ),
 m_t1_transition_enabled( initial_parameters.m_t1_transition_enabled ),
 m_improve_collision_epsilon( initial_parameters.m_improve_collision_epsilon ),
-m_max_volume_change( UNINITIALIZED_DOUBLE ),
-m_min_edge_length( UNINITIALIZED_DOUBLE ),
-m_max_edge_length( UNINITIALIZED_DOUBLE ),
+m_max_volume_change( *initial_parameters.m_max_volume_change ),
+m_min_edge_length( *initial_parameters.m_min_edge_length ),
+m_max_edge_length( *initial_parameters.m_max_edge_length ),
 m_merge_proximity_epsilon( initial_parameters.m_merge_proximity_epsilon ),
 m_min_triangle_area( initial_parameters.m_min_triangle_area ),
 m_min_triangle_angle( initial_parameters.m_min_triangle_angle ),
 m_max_triangle_angle( initial_parameters.m_max_triangle_angle ),
 m_large_triangle_angle_to_split( initial_parameters.m_large_triangle_angle_to_split ),
 m_subdivision_scheme( initial_parameters.m_subdivision_scheme ),
-should_delete_subdivision_scheme_object( m_subdivision_scheme == NULL ? true : false ),
-m_dirty_triangles(0),
+should_delete_subdivision_scheme_object( m_subdivision_scheme == nullptr ? true : false ),
 m_allow_topology_changes( initial_parameters.m_allow_topology_changes ),
 m_allow_non_manifold( initial_parameters.m_allow_non_manifold ),
 m_perform_improvement( initial_parameters.m_perform_improvement ),
 m_remesh_boundaries( initial_parameters.m_remesh_boundaries),
 m_allow_vertex_movement_during_collapse( initial_parameters.m_allow_vertex_movement_during_collapse ),
 m_perform_smoothing( initial_parameters.m_perform_smoothing),
-m_vertex_change_history(),
-m_triangle_change_history(),
-m_defragged_triangle_map(),
-m_defragged_vertex_map(),
-m_solid_vertices_callback(NULL),
-m_mesheventcallback(NULL),
-m_aggressive_mode(false),
-m_hard_min_edge_len(0.05*initial_parameters.m_min_edge_length),
-m_hard_max_edge_len(10.0*initial_parameters.m_max_edge_length)
+m_hard_min_edge_len(0.05*m_min_edge_length),
+m_hard_max_edge_len(10.0*m_max_edge_length)
 {
     
     if ( m_verbose )
@@ -128,7 +120,13 @@ m_hard_max_edge_len(10.0*initial_parameters.m_max_edge_length)
         std::cout << " ======== SurfTrack ======== " << std::endl;
         std::cout << "m_allow_topology_changes: " << m_allow_topology_changes << std::endl;
         std::cout << "m_perform_improvement: " << m_perform_improvement << std::endl;
-        std::cout << "m_min_triangle_area: " << m_min_triangle_area << std::endl;
+        std::cout << "m_min_triangle_area: ";
+        if(m_min_triangle_area) {
+            std::cout << std::endl;
+        } else {
+            std::cout << "No"<< std::endl;
+        }
+
         std::cout << "initial_parameters.m_use_fraction: " << initial_parameters.m_use_fraction << std::endl;
     }
     
@@ -137,22 +135,22 @@ m_hard_max_edge_len(10.0*initial_parameters.m_max_edge_length)
         rebuild_static_broad_phase();
     }
     
-    assert( initial_parameters.m_min_edge_length != UNINITIALIZED_DOUBLE );
-    assert( initial_parameters.m_max_edge_length != UNINITIALIZED_DOUBLE );
-    assert( initial_parameters.m_max_volume_change != UNINITIALIZED_DOUBLE );
+    assert( initial_parameters.m_min_edge_length );
+    assert( initial_parameters.m_max_edge_length );
+    assert( initial_parameters.m_max_volume_change );
     
     if ( initial_parameters.m_use_fraction )
     {
         double avg_length = DynamicSurface::get_average_non_solid_edge_length();
-        m_collapser.m_min_edge_length = initial_parameters.m_min_edge_length * avg_length;
-        m_collapser.m_max_edge_length = initial_parameters.m_max_edge_length * avg_length;
+        m_collapser.m_min_edge_length = m_min_edge_length * avg_length;
+        m_collapser.m_max_edge_length = m_max_edge_length * avg_length;
         
-        m_splitter.m_max_edge_length = initial_parameters.m_max_edge_length * avg_length;
-        m_splitter.m_min_edge_length = initial_parameters.m_min_edge_length * avg_length;
+        m_splitter.m_max_edge_length = m_max_edge_length * avg_length;
+        m_splitter.m_min_edge_length = m_min_edge_length * avg_length;
         
-        m_min_edge_length = initial_parameters.m_min_edge_length * avg_length;
-        m_max_edge_length = initial_parameters.m_max_edge_length * avg_length;
-        m_max_volume_change = initial_parameters.m_max_volume_change * avg_length * avg_length * avg_length;
+        m_min_edge_length = m_min_edge_length * avg_length;
+        m_max_edge_length = m_max_edge_length * avg_length;
+        m_max_volume_change = m_max_volume_change * avg_length * avg_length * avg_length;
         
         m_t1transition.m_pull_apart_distance = avg_length * initial_parameters.m_pull_apart_distance * 2;
         m_collapser.m_t1_pull_apart_distance = avg_length * initial_parameters.m_pull_apart_distance * 2;
@@ -160,15 +158,11 @@ m_hard_max_edge_len(10.0*initial_parameters.m_max_edge_length)
     }
     else
     {
-        m_collapser.m_min_edge_length = initial_parameters.m_min_edge_length;
-        m_collapser.m_max_edge_length = initial_parameters.m_max_edge_length;
+        m_collapser.m_min_edge_length = m_min_edge_length;
+        m_collapser.m_max_edge_length = m_max_edge_length;
         
-        m_splitter.m_max_edge_length = initial_parameters.m_max_edge_length;
-        m_splitter.m_min_edge_length = initial_parameters.m_min_edge_length;
-        
-        m_min_edge_length = initial_parameters.m_min_edge_length;
-        m_max_edge_length = initial_parameters.m_max_edge_length;
-        m_max_volume_change = initial_parameters.m_max_volume_change;
+        m_splitter.m_max_edge_length = m_max_edge_length;
+        m_splitter.m_min_edge_length = m_min_edge_length;
         
         m_t1transition.m_pull_apart_distance = initial_parameters.m_pull_apart_distance * 2;
         m_collapser.m_t1_pull_apart_distance = initial_parameters.m_pull_apart_distance * 2;
@@ -183,7 +177,7 @@ m_hard_max_edge_len(10.0*initial_parameters.m_max_edge_length)
         std::cout << "m_max_volume_change: " << m_max_volume_change << std::endl;
     }
     
-    if ( m_subdivision_scheme == NULL )
+    if ( m_subdivision_scheme == nullptr )
     {
         m_subdivision_scheme = new MidpointScheme();
         should_delete_subdivision_scheme_object = true;

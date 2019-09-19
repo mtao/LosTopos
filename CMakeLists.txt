@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.10.1)
 project(LosTopos)
 add_definitions(-DUSE_FORTRAN_BLAS)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 set (Directories
  .
  common

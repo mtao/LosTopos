@@ -1044,7 +1044,7 @@ bool write_ribfile(const NonDestructiveTriMesh &mesh, const std::vector<float> &
    fprintf( output, "]\n" );
    fprintf( output, " [ " );
    for(unsigned int i=0; i<mesh.m_tris.size(); ++i){
-      fprintf( output, " %d %d %d ", mesh.m_tris[i][0], mesh.m_tris[i][1], mesh.m_tris[i][2] );
+      fprintf( output, " %ld %ld %ld ", mesh.m_tris[i][0], mesh.m_tris[i][1], mesh.m_tris[i][2] );
       if(i%6==5 && i!=mesh.m_tris.size()-1) fprintf( output, "\n" ); 
    }
    fprintf( output, "]\n" );

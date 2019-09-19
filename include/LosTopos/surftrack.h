@@ -83,15 +83,15 @@ struct SurfTrackInitializationParameters
     
     /// Smallest edge length allowed
     ///
-    double m_min_edge_length = 0.0;
+    std::optional<double> m_min_edge_length;//must be active but has no default!
     
     /// Longest edge length allowed
     ///
-    double m_max_edge_length = 0.0; 
+    std::optional<double> m_max_edge_length;//must be active but has no default!
     
     /// Maximum change in volume allowed for one operation
     ///
-    double m_max_volume_change = 0.0;
+    std::optional<double> m_max_volume_change;//must be active but has no default!
     
     /// Smallest interior angle at a triangle vertex allowed
     ///
@@ -652,7 +652,7 @@ public:
 
     /// Flag that dictates whether to aggressively pursue good angles for only the worst offenders.
     /// 
-    bool m_aggressive_mode;
+    bool m_aggressive_mode = false;
 
     /// boolean, whether to allow vertices to move during collapses (i.e. use points other than the endpoints)
     int m_allow_vertex_movement_during_collapse;
@@ -689,7 +689,7 @@ public:
         virtual std::ostream & log() { return std::cout; }
     };
     
-    MeshEventCallback * m_mesheventcallback;
+    MeshEventCallback * m_mesheventcallback = nullptr;
     
     class SolidVerticesCallback
     {
@@ -709,7 +709,7 @@ public:
         virtual bool solid_edge_is_feature(const SurfTrack & st, size_t edge) = 0;
     };
     
-    SolidVerticesCallback * m_solid_vertices_callback;
+    SolidVerticesCallback * m_solid_vertices_callback = nullptr;
         
     /// History of vertex removal or addition events
     ///

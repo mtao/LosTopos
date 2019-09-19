@@ -13,7 +13,7 @@ double
 orientation1d(const double* x0,
               const double* x1)
 {
-    assert(x0 != NULL && x1 != NULL);
+    assert(x0 != nullptr && x1 != nullptr);
 
     return x0[0]-x1[0];
 }

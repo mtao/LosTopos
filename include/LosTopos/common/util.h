@@ -517,7 +517,7 @@ void write_matlab(std::ostream& output, const std::vector<T>& a, const char *var
 static int seed = 0;
 static int random() {
   if(seed == 0) {
-    srand((unsigned int)time(NULL));
+    srand((unsigned int)time(nullptr));
     seed = 1;
   }
   return rand();

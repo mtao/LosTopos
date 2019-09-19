@@ -16,119 +16,91 @@ LosTopos::RunStats g_stats;
     
 // ------------------------------------------------------------------
 
-void RunStats::set_int( std::string name, int64_t value )
+void RunStats::set_int( const std::string& name, int64_t value )
 {
     int_stats[name] = value;
 }
 
-void RunStats::add_to_int( std::string name, int64_t increment )
+void RunStats::add_to_int( const std::string& name, int64_t increment )
 {
-    int64_t value = 0;
-    bool exists = get_int( name, value );
-    if ( !exists )
+    std::optional<int64_t> value= get_int( name );
+    if ( !value )
     {
         value = 0;
     }
-    value += increment;
-    set_int( name, value );
+    *value += increment;
+    set_int( name, *value );
 }
 
-int64_t RunStats::get_int( std::string name )
+std::optional<int64_t> RunStats::get_int( const std::string& name )
 {
     std::map<std::string, int64_t>::iterator iter = int_stats.find( name );
-    if (  iter == int_stats.end() ) { return ~0; }
+    if (  iter == int_stats.end() ) { return {}; }
     return iter->second;
 }
 
-bool RunStats::get_int( std::string name, int64_t& value )
+
+void RunStats::update_min_int( const std::string& name, int64_t value )
 {
-    std::map<std::string, int64_t>::iterator iter = int_stats.find( name );
-    if ( iter == int_stats.end() )
-    {
-        return false;
-    }
-    value = iter->second;
-    return true;  
+    std::optional<int64_t> current_min = get_int( name );
+    if ( !current_min) { current_min = value; }
+    int_stats[name] = std::min( value, *current_min );
 }
 
-void RunStats::update_min_int( std::string name, int64_t value )
+void RunStats::update_max_int( const std::string& name, int64_t value )
 {
-    int64_t current_min;
-    bool exists = get_int( name, current_min );
-    if ( !exists ) { current_min = value; }
-    int_stats[name] = std::min( value, current_min );
-}
-
-void RunStats::update_max_int( std::string name, int64_t value )
-{
-    int64_t current_max;
-    bool exists = get_int( name, current_max );
-    if ( !exists ) { current_max = value; }
-    int_stats[name] = std::max( value, current_max );
+    std::optional<int64_t> current_max = get_int( name );
+    if ( !current_max) { current_max = value; }
+    int_stats[name] = std::max( value, *current_max );
 }
 
 // ------------------------------------------------------------------
 
-void RunStats::set_double( std::string name, double value )
+void RunStats::set_double( const std::string& name, double value )
 {
     double_stats[name] = value;
 }
 
-void RunStats::add_to_double( std::string name, double increment )
+void RunStats::add_to_double( const std::string& name, double increment )
 {
-    double value = 0;
-    bool exists = get_double( name, value );
-    if ( !exists )
-    {
+    std::optional<double> value = get_double( name);
+    if(!value) {
         value = 0;
     }
-    value += increment;
-    set_double( name, value );
+    *value += increment;
+    set_double( name, *value );
 }
 
-double RunStats::get_double( std::string name )
+std::optional<double> RunStats::get_double( const std::string& name )
 {
     std::map<std::string, double>::iterator iter = double_stats.find( name );
-    if ( iter == double_stats.end() ) { return UNINITIALIZED_DOUBLE; }
+    if ( iter == double_stats.end() ) { return {}; }
     return iter->second;
 }
 
-bool RunStats::get_double( std::string name, double& value )
+void RunStats::update_min_double( const std::string& name, double value )
 {
-    std::map<std::string, double>::iterator iter = double_stats.find( name );
-    if ( iter == double_stats.end() )
-    {
-        return false;
-    }
-    value = iter->second;
-    return true;     
+    std::optional<double> current_min = get_double( name);
+    if ( !current_min ) { current_min = value; }
+    double_stats[name] = std::min( value, *current_min );
 }
 
-void RunStats::update_min_double( std::string name, double value )
+void RunStats::update_max_double( const std::string& name, double value )
 {
-    double current_min;
-    bool exists = get_double( name, current_min );
-    if ( !exists ) { current_min = value; }
-    double_stats[name] = std::min( value, current_min );
-}
-
-void RunStats::update_max_double( std::string name, double value )
-{
-    double current_max;
-    bool exists = get_double( name, current_max );
-    if ( !exists ) { current_max = value; }
-    double_stats[name] = std::max( value, current_max );
+    std::optional<double> current_max = get_double( name);
+    if ( !current_max ) { current_max = value; }
+    double_stats[name] = std::max( value, *current_max );
 }
 
 // ------------------------------------------------------------------
 
-void RunStats::add_per_frame_int( std::string name, int frame, int64_t value )
+void RunStats::add_per_frame_int( const std::string& name, int frame, int64_t value )
 {
     std::vector<PerFrameInt>& sequence = per_frame_int_stats[name];
     sequence.push_back( PerFrameInt(frame,value) );
 }
 
-bool RunStats::get_per_frame_ints( std::string name, std::vector<PerFrameInt>& sequence )
+bool RunStats::get_per_frame_ints( const std::string& name, std::vector<PerFrameInt>& sequence )
 {
     std::map<std::string, std::vector<PerFrameInt> >::iterator iter = per_frame_int_stats.find( name );
     if ( iter == per_frame_int_stats.end() )
@@ -141,13 +113,13 @@ bool RunStats::get_per_frame_ints( std::string name, std::vector<PerFrameInt>& s
 
 // ------------------------------------------------------------------
 
-void RunStats::add_per_frame_double( std::string name, int frame, double value )
+void RunStats::add_per_frame_double( const std::string& name, int frame, double value )
 {
     std::vector<PerFrameDouble>& sequence = per_frame_double_stats[name];
     sequence.push_back( PerFrameDouble(frame,value) );
 }
 
-bool RunStats::get_per_frame_doubles( std::string name, std::vector<PerFrameDouble>& sequence )
+bool RunStats::get_per_frame_doubles( const std::string& name, std::vector<PerFrameDouble>& sequence )
 {
     std::map<std::string, std::vector<PerFrameDouble> >::iterator iter = per_frame_double_stats.find( name );
     if ( iter == per_frame_double_stats.end() )

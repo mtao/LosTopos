@@ -756,9 +756,9 @@ namespace rootparity
                                              double* out_alpha2)
         {
             assert( k == 1 );
-            assert(out_alpha0 != NULL && out_alpha1 != NULL && out_alpha2 != NULL);
+            assert(out_alpha0 != nullptr && out_alpha1 != nullptr && out_alpha2 != nullptr);
             
-            if(out_alpha0 == NULL || out_alpha1 == NULL || out_alpha2 == NULL) //prevent null ptr warning.
+            if(out_alpha0 == nullptr || out_alpha1 == nullptr || out_alpha2 == nullptr) //prevent null ptr warning.
                return -1;                                                      //should never occur
 
             assert(fegetround()== FE_TONEAREST);

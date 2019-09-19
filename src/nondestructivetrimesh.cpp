@@ -616,7 +616,7 @@ void NonDestructiveTriMesh::clear_deleted_triangles( std::vector<Vec2st>* defrag
     new_tris.resize( live_tri_count );
     new_labels.resize( live_tri_count );
 
-    if ( defragged_triangle_map != NULL )
+    if ( defragged_triangle_map != nullptr)
     {
        defragged_triangle_map->resize(live_tri_count);
        

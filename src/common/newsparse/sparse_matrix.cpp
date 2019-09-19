@@ -74,7 +74,7 @@ void SparseMatrixDynamicCSR::
 apply(const double *x, double *y) const
 {
     assert(x && y);
-    if(x!= NULL && y != NULL) {
+    if(x!= nullptr && y != nullptr) {
        for(int i=0; i<m; ++i){
            double d=0;
            const DynamicSparseVector &r=row[i];
@@ -89,7 +89,7 @@ void SparseMatrixDynamicCSR::
 apply_and_subtract(const double *x, const double *y, double *z) const
 {
     assert(x && y && z);
-    if(x!= NULL && y != NULL && z != NULL) {
+    if(x!= nullptr && y != nullptr && z != nullptr) {
        for(int i=0; i<m; ++i){
           double d=0;
           const DynamicSparseVector &r=row[i];
@@ -104,7 +104,7 @@ void SparseMatrixDynamicCSR::
 apply_transpose(const double *x, double *y) const
 {
     assert(x && y);
-    if(x!= NULL && y != NULL) {
+    if(x!= nullptr && y != nullptr) {
        BLAS::set_zero(n, y);
        for(int i=0; i<m; ++i){
           const DynamicSparseVector &r=row[i];
@@ -119,7 +119,7 @@ void SparseMatrixDynamicCSR::
 apply_transpose_and_subtract(const double *x, const double *y, double *z) const
 {
     assert(x && y && z);
-    if(x!= NULL && y != NULL && z != NULL) {
+    if(x!= nullptr && y != nullptr && z != nullptr) {
        if(y!=z) BLAS::copy(n, y, z);
        for(int i=0; i<m; ++i){
           const DynamicSparseVector &r=row[i];
@@ -219,7 +219,7 @@ void SparseMatrixStaticCSR::
 apply_and_subtract(const double *x, const double *y, double *z) const
 {
     assert(x && y && z);
-    if(x!= NULL && y != NULL && z != NULL) {
+    if(x!= nullptr && y != nullptr && z != nullptr) {
        for(int i=0, k=rowstart[0]; i<m; ++i){
           double d=0;
           for(; k<rowstart[i+1]; ++k) d+=value[k]*x[colindex[k]];
@@ -233,7 +233,7 @@ void SparseMatrixStaticCSR::
 apply_transpose_and_subtract(const double *x, const double *y, double *z) const
 {
     assert(x && y && z);
-    if(x != NULL && y != NULL && z != NULL) {
+    if(x != nullptr && y != nullptr && z != nullptr) {
        if(y!=z) BLAS::copy(n, y, z);
        for(int i=0, k=rowstart[0]; i<m; ++i){
            double xi=x[i];
