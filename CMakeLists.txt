@@ -18,13 +18,9 @@ FILE(GLOB_RECURSE Headers  ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 FILE(GLOB_RECURSE Sources ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 
 
-find_package (OpenGL REQUIRED)
-
-find_package (GLUT REQUIRED glut)
-
 add_library(LosTopos SHARED ${Headers} ${Sources})
 target_include_directories(LosTopos PRIVATE ${GLUT_INCLUDE_DIR})
 target_include_directories(LosTopos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries (LosTopos OpenGL::OpenGL ${GLUT_glut_LIBRARY})
+target_link_libraries (LosTopos)
 
 
