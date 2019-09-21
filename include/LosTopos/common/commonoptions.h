@@ -12,12 +12,13 @@
 #define COMMONOPTIONS_H
 
 #include <iostream>
+#include <limits>
 
 // ---------------------------------------------------------
 // Global constants
 // ---------------------------------------------------------
 
-const double UNINITIALIZED_DOUBLE = 0x0F;
+const double UNINITIALIZED_DOUBLE = std::numeric_limits<double>::signaling_NaN();
 const double BIG_DOUBLE = 1e30;
 
 #ifdef _MSC_VER

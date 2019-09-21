@@ -39,8 +39,8 @@ extern RunStats g_stats;
 // --------------------------------------------------------
 
 EdgeCollapser::EdgeCollapser( SurfTrack& surf, bool use_curvature, bool remesh_boundaries, double min_curvature_multiplier ) :
-m_min_edge_length( UNINITIALIZED_DOUBLE ),
-m_max_edge_length( UNINITIALIZED_DOUBLE ),
+//m_min_edge_length( UNINITIALIZED_DOUBLE ),
+//m_max_edge_length( UNINITIALIZED_DOUBLE ),
 m_use_curvature( use_curvature ),
 m_remesh_boundaries( remesh_boundaries ),
 m_min_curvature_multiplier( min_curvature_multiplier ),
@@ -522,6 +522,7 @@ bool EdgeCollapser::get_new_vertex_position_dihedral(Vec3d& vertex_new_position,
     //  1. one of the two vertices has no feature edges
     //  2. both have feature edges, and the edge is a feature, and one of the two vertices has exactly two feature edges
     bool large_threshold = ((keep_rank == 1 || delete_rank == 1) || (((keep_rank == 2 && m_surf.vertex_feature_is_smooth_ridge(vertex_to_keep)) || (delete_rank == 2 && m_surf.vertex_feature_is_smooth_ridge(vertex_to_delete))) && m_surf.edge_is_feature(edge)));
+    large_threshold = true; // always use large thresholds for bubbles! because there're no features other than triple junctions that we care about.
     
     large_threshold = large_threshold || m_surf.m_aggressive_mode; //if we are in aggressive mode, use the large threshold
     
@@ -615,6 +616,9 @@ bool EdgeCollapser::get_new_vertex_position_dihedral(Vec3d& vertex_new_position,
     else if (keep_vert_is_any_solid || delete_vert_is_any_solid)
     {
         assert(m_surf.m_solid_vertices_callback);
+        
+        if (!keep_vert_is_any_solid)
+            std::swap(vertex_to_keep, vertex_to_delete);
         
         Vec3d newpos = (m_surf.get_position(vertex_to_keep) + m_surf.get_position(vertex_to_delete)) / 2;
         if (!m_surf.m_solid_vertices_callback->generate_collapsed_position(m_surf, vertex_to_keep, vertex_to_delete, newpos))
@@ -845,6 +849,7 @@ bool EdgeCollapser::collapse_edge( size_t edge )
         m_surf.set_newposition( vertex_to_delete, vertex_new_position );
         
         bool volume_change = collapse_edge_introduces_volume_change( vertex_to_delete, edge, vertex_new_position );
+        volume_change = false;  // ignore volume changes for bubbles!
         
         if ( volume_change && !m_surf.m_aggressive_mode)
         {
@@ -910,6 +915,11 @@ bool EdgeCollapser::collapse_edge( size_t edge )
     }
     
     // --------------
+    // all clear, now perform the collapse
+    
+    void * data = NULL;
+    if (m_surf.m_mesheventcallback)
+        m_surf.m_mesheventcallback->pre_collapse(m_surf, edge, &data);
     
     // start building history data
     MeshUpdateEvent collapse(MeshUpdateEvent::EDGE_COLLAPSE);
@@ -1002,11 +1012,26 @@ bool EdgeCollapser::collapse_edge( size_t edge )
     
     m_surf.m_mesh.update_is_boundary_vertex( vertex_to_keep );
     
+    // update the remeshing velocities
+    m_surf.pm_velocities[vertex_to_keep] = (m_surf.pm_velocities[vertex_to_keep] + m_surf.pm_velocities[vertex_to_delete]) / 2;
+
+    // update the target edge length
+    double new_target_edge_length = m_surf.compute_vertex_target_edge_length(vertex_to_keep);
+    std::vector<size_t> new_onering;
+    m_surf.m_mesh.get_adjacent_vertices(vertex_to_keep, new_onering);
+    for (size_t i = 0; i < new_onering.size(); i++)
+        if (new_target_edge_length > m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio)
+            new_target_edge_length = m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio;
+    m_surf.m_target_edge_lengths[vertex_to_keep] = new_target_edge_length;
+    
     // Store the history
     m_surf.m_mesh_change_history.push_back(collapse);
-    
+
+    // remove degeneracies
+    m_surf.trim_degeneracies( m_surf.m_dirty_triangles );
+
     if (m_surf.m_mesheventcallback)
-        m_surf.m_mesheventcallback->collapse(m_surf, edge);
+        m_surf.m_mesheventcallback->post_collapse(m_surf, edge, vertex_to_keep, data);
     
     return true;
 }
@@ -1049,11 +1074,11 @@ bool EdgeCollapser::edge_is_collapsible( size_t edge_index, double& current_leng
     {
         
         //collapse if we're below the lower limit
-        if(current_length < m_min_edge_length) 
+        if(current_length < m_surf.edge_min_edge_length(edge_index))
             return true;
         
         //don't collapse if we're near the upper limit, since it can produce edges above the limit
-        if(current_length > m_max_edge_length*0.5)
+        if(current_length > m_surf.edge_max_edge_length(edge_index)*0.5)
             return false;
         
         //check all incident edges to see if any of them are super short, and if so, split this guy accordingly.
@@ -1085,7 +1110,7 @@ bool EdgeCollapser::edge_is_collapsible( size_t edge_index, double& current_leng
     }
     else
     {
-        return current_length < m_min_edge_length;  
+        return current_length < m_surf.edge_min_edge_length(edge_index);
     }
     
     
@@ -1104,7 +1129,7 @@ bool EdgeCollapser::collapse_pass()
     if ( m_surf.m_verbose )
     {
         std::cout << "\n\n\n---------------------- EdgeCollapser: collapsing ----------------------" << std::endl;
-        std::cout << "m_min_edge_length: " << m_min_edge_length;
+//        std::cout << "m_min_edge_length: " << m_min_edge_length;
         std::cout << ", m_use_curvature: " << m_use_curvature;
         std::cout << ", m_min_curvature_multiplier: " << m_min_curvature_multiplier << std::endl;
         std::cout << "m_surf.m_collision_safety: " << m_surf.m_collision_safety << std::endl;
@@ -1153,13 +1178,6 @@ bool EdgeCollapser::collapse_pass()
         double dummy;
         if(edge_is_collapsible(e, dummy)) {
             bool result = collapse_edge( e );
-            
-            if ( result )
-            { 
-                // clean up degenerate triangles and tets
-                m_surf.trim_degeneracies( m_surf.m_dirty_triangles );                        
-            }
-            
             collapse_occurred |= result;
         }
     }

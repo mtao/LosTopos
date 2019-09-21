@@ -420,9 +420,9 @@ bool FaceSplitter::split_face( size_t face, size_t& result_vertex, bool specify_
     
     //Check that we do not introduce (very) short edges
     
-    if(mag(va - new_vertex_position) < 0.5*m_surf.m_min_edge_length ||
-       mag(vb - new_vertex_position) < 0.5*m_surf.m_min_edge_length ||
-       mag(vc - new_vertex_position) < 0.5*m_surf.m_min_edge_length)
+    if(mag(va - new_vertex_position) < 0.5*m_surf.vertex_min_edge_length(vertex_a) ||
+       mag(vb - new_vertex_position) < 0.5*m_surf.vertex_min_edge_length(vertex_b) ||
+       mag(vc - new_vertex_position) < 0.5*m_surf.vertex_min_edge_length(vertex_c))
         return false;
     
     
@@ -457,7 +457,11 @@ bool FaceSplitter::split_face( size_t face, size_t& result_vertex, bool specify_
     // --------------
     
     // Do the actual splitting
-    
+
+    void * data = NULL;
+    if (m_surf.m_mesheventcallback)
+        m_surf.m_mesheventcallback->pre_facesplit(m_surf, face, &data);
+
     Vec3d  new_vertex_mass = Vec3d(1, 1, 1);
     if (m_surf.vertex_is_solid(vertex_a, 0) && m_surf.vertex_is_solid(vertex_b, 0) && m_surf.vertex_is_solid(vertex_c, 0)) new_vertex_mass[0] = std::numeric_limits<double>::infinity();
     if (m_surf.vertex_is_solid(vertex_a, 1) && m_surf.vertex_is_solid(vertex_b, 1) && m_surf.vertex_is_solid(vertex_c, 1)) new_vertex_mass[1] = std::numeric_limits<double>::infinity();
@@ -506,6 +510,19 @@ bool FaceSplitter::split_face( size_t face, size_t& result_vertex, bool specify_
         created_tris.push_back(newtri0_id);
     }
     
+    // interpolate the remeshing velocities onto the new vertex
+    m_surf.pm_velocities[vertex_d] = Vec3d(0, 0, 0);
+    std::pair<Vec3d, double> laplacian = m_surf.laplacian(vertex_d, m_surf.pm_velocities);
+    m_surf.pm_velocities[vertex_d] = laplacian.first / laplacian.second;
+
+    // update the target edge length
+    double new_target_edge_length = m_surf.compute_vertex_target_edge_length(vertex_d);
+    std::vector<size_t> new_onering;
+    m_surf.m_mesh.get_adjacent_vertices(vertex_d, new_onering);
+    for (size_t i = 0; i < new_onering.size(); i++)
+        if (new_target_edge_length > m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio)
+            new_target_edge_length = m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio;
+    m_surf.m_target_edge_lengths[vertex_d] = new_target_edge_length;
     
     // Add to new history log
     MeshUpdateEvent facesplit(MeshUpdateEvent::FACE_SPLIT);
@@ -519,7 +536,7 @@ bool FaceSplitter::split_face( size_t face, size_t& result_vertex, bool specify_
     m_surf.m_mesh_change_history.push_back(facesplit);
     
     if (m_surf.m_mesheventcallback)
-        m_surf.m_mesheventcallback->facesplit(m_surf, face);
+        m_surf.m_mesheventcallback->post_facesplit(m_surf, face, vertex_d, data);
     
     //return output vertex
     result_vertex = vertex_d;

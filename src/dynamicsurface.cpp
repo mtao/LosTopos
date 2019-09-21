@@ -73,11 +73,12 @@ m_mesh(),
 m_broad_phase( new BroadPhaseGrid() ),
 m_collision_pipeline( NULL ),    // allocated and initialized in the constructor body
 m_aabb_padding( max( in_proximity_epsilon, 1e-4 ) ),
-pm_positions(vertex_positions), 
+m_feature_edge_angle_threshold(M_PI/6),
+//m_feature_edge_angle_threshold(M_PI)    //&&&& ignore edge features
+pm_positions(vertex_positions),
 pm_newpositions(vertex_positions),
 pm_velocities(vertex_positions.size(),Vec3d(0,0,0)),
-m_velocities(vertex_positions.size()),
-m_feature_edge_angle_threshold(M_PI/6)
+m_velocities(vertex_positions.size())
 {
     
     if ( m_verbose )

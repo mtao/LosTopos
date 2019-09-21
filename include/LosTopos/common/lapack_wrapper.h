@@ -8,13 +8,24 @@
 #include <cmath>
 #include <iostream>
 
+//////////////
+// includes necessary to use Accelerate framework with GCC on OS Yosemite+ (http://stackoverflow.com/questions/26527077/compiling-with-accelerate-framework-on-osx-yosemite ). Thanks to Herve Turlier for pointing out.
+#ifndef __has_extension
+#define __has_extension(x) 0
+#endif
+
+#define vImage_Utilities_h
+#define vImage_CVUtilities_h
+//////////////
+
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
+#else
+//#include <clapack.h>
 #endif
 
 using std::max;
 using std::min;
-
 
 namespace LAPACK{
     

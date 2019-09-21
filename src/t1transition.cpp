@@ -51,8 +51,8 @@ T1Transition::T1Transition(SurfTrack & surf, VelocityFieldCallback * vfc, bool r
 m_remesh_boundaries(remesh_boundaries),
 m_pull_apart_distance(0.002),
 m_pull_apart_tendency_threshold(0),
-m_velocity_field_callback(vfc),
-m_surf(surf)
+m_surf(surf),
+m_velocity_field_callback(vfc)
 {
     
 }
@@ -72,7 +72,7 @@ struct less_pair_second
 struct SortableDirectionCandidate
 {
     size_t vertex;
-    Vec2i regions;
+    Vec2i scc;
     Vec3d direction;
     double tendency;
     
@@ -92,46 +92,58 @@ bool T1Transition::t1_pass()
     NonDestructiveTriMesh & mesh = m_surf.m_mesh;
     bool pop_occurred = false;
     
-    // find the region count
-    int max_region = -1;
-    for (size_t i = 0; i < mesh.nt(); i++)
-    {
-        if (mesh.get_triangle(i)[0] == mesh.get_triangle(i)[1] && mesh.get_triangle(i)[0] == mesh.get_triangle(i)[2])
-            continue;
-        Vec2i label = mesh.get_triangle_label(i);
-        assert(label[0] >= 0);
-        assert(label[1] >= 0);
-        if (label[0] > max_region) max_region = label[0];
-        if (label[1] > max_region) max_region = label[1];
-    }
-    int nregion = max_region + 1;
-    
-    // this is the incident matrix for a region graph. not every col/row need to be filled for a particular vertex becuase the vertex may not be incident to all regions.
-    std::vector<std::vector<int> > region_graph(nregion, std::vector<int>(nregion, 0));
+//    // find the region count
+//    int max_region = -1;
+//    for (size_t i = 0; i < mesh.nt(); i++)
+//    {
+//        if (mesh.get_triangle(i)[0] == mesh.get_triangle(i)[1] && mesh.get_triangle(i)[0] == mesh.get_triangle(i)[2])
+//            continue;
+//        Vec2i label = mesh.get_triangle_label(i);
+//        assert(label[0] >= 0);
+//        assert(label[1] >= 0);
+//        if (label[0] > max_region) max_region = label[0];
+//        if (label[1] > max_region) max_region = label[1];
+//    }
+//    int nregion = max_region + 1;
+//    
+//    // this is the incident matrix for a region graph. not every col/row need to be filled for a particular vertex becuase the vertex may not be incident to all regions.
+//    std::vector<std::vector<int> > region_graph(nregion, std::vector<int>(nregion, 0));
     
     // a list of candidate directions
-    std::vector<SortableDirectionCandidate> candidates;
+    std::vector<SortableDirectionCandidate>       candidates;
+    std::vector<std::vector<FaceRegion> >         candidate_SCC_lists;
+    std::vector<std::vector<Vec2i> >              candidate_SCC_labels;
+    std::vector<std::vector<std::vector<int> > >  candidate_region_graphs;
     
     // loop through all the vertices
-    for (size_t i = 0; i < mesh.nv(); i++)
+    for (size_t xji = 0; xji < mesh.nv(); xji++)
     {
-        size_t xj = i;
+        size_t xj = xji;
         
-        std::set<int> vertex_regions_set;
-        for (size_t i = 0; i < mesh.m_vertex_to_triangle_map[xj].size(); i++)
-        {
-            Vec2i label = mesh.get_triangle_label(mesh.m_vertex_to_triangle_map[xj][i]);
-            vertex_regions_set.insert(label[0]);
-            vertex_regions_set.insert(label[1]);
-        }
+//        std::set<int> vertex_regions_set;
+//        for (size_t i = 0; i < mesh.m_vertex_to_triangle_map[xj].size(); i++)
+//        {
+//            Vec2i label = mesh.get_triangle_label(mesh.m_vertex_to_triangle_map[xj][i]);
+//            vertex_regions_set.insert(label[0]);
+//            vertex_regions_set.insert(label[1]);
+//        }
+//        
+//        std::vector<int> vertex_regions;
+//        vertex_regions.assign(vertex_regions_set.begin(), vertex_regions_set.end());
+//        
+//        // cull away the interior vertices of manifold surface patches
+//        if (vertex_regions_set.size() < 3)
+//            continue;
+
+        // identify all the connected components of space (SCC) in the local neighborhood of this vertex by tracing between faces
+        std::vector<FaceRegion> SCC_list;  // a list of all the SCC, each entry identified by a face index and a boolean indicating if it's below (true) or above (false) that face (an arbitrary one among all the faces of this SCC)
+        std::vector<Vec2i> SCC_labels;   // for each face incident to this vertex, an entry records the SCC below ([0]) and above ([1]) it, identified by their indices into SCC_list
         
-        std::vector<int> vertex_regions;
-        vertex_regions.assign(vertex_regions_set.begin(), vertex_regions_set.end());
+        analyze_vertex(xj, SCC_list, SCC_labels);
         
-        // cull away the interior vertices of manifold surface patches
-        if (vertex_regions_set.size() < 3)
+        if (SCC_list.size() < 3)    // no need for T1 if there are only two SCC
             continue;
-        
+
         //
         // Pull apart strategy: in order to cope with various configurations (such as a region-valence-5 vertex being a triple junction, or
         //  junctions on the BB walls), the following strategy is adopted:
@@ -195,89 +207,88 @@ bool T1Transition::t1_pass()
         //
         
         // construct the region graph
-        //region_graph.assign(nregion, std::vector<int>(nregion, 0));
-        region_graph.resize(nregion); // Fang's big speedup
+        size_t nscc = SCC_list.size();
+        std::vector<std::vector<int> > region_graph(nscc, std::vector<int>(nscc, 0));
         for (size_t i = 0; i < mesh.m_vertex_to_triangle_map[xj].size(); i++)
         {
-            Vec2i label = mesh.get_triangle_label(mesh.m_vertex_to_triangle_map[xj][i]);
+//            Vec2i label = mesh.get_triangle_label(mesh.m_vertex_to_triangle_map[xj][i]);
+            Vec2i label = SCC_labels[mesh.m_vertex_to_triangle_map[xj][i]];
+            assert(label[0] >= 0 && label[0] < nscc);
+            assert(label[1] >= 0 && label[1] < nscc);
             region_graph[label[0]][label[1]] = 1;
             region_graph[label[1]][label[0]] = 1;
         }
         
         // find missing edges, as candidates of pull-apart
         std::vector<std::pair<double, std::pair<Vec2i, Vec3d> > > candidate_pairs;  // components: <tensile_force, <(A, B), pull_apart_direction> >
-        for (size_t i = 0; i < vertex_regions.size(); i++)
+        for (size_t i = 0; i < nscc; i++)
         {
-            for (size_t j = i + 1; j < vertex_regions.size(); j++)
+            for (size_t j = i + 1; j < nscc; j++)
             {
-                int A = vertex_regions[i];
-                int B = vertex_regions[j];
-                if (region_graph[A][B] == 0)
+//                int A = vertex_regions[i];
+//                int B = vertex_regions[j];
+                int A = i;
+                int B = j;
+                if (region_graph[i][j] == 0)
                 {
                     Vec3d pull_apart_direction;
                     double pull_apart_tendency = 0;
                     if (m_velocity_field_callback)
-                        pull_apart_tendency = try_pull_vertex_apart_using_velocity_field(xj, A, B, pull_apart_direction);
+                        pull_apart_tendency = try_pull_vertex_apart_using_velocity_field(xj, A, B, SCC_list, SCC_labels, pull_apart_direction);
                     else
-                        pull_apart_tendency = try_pull_vertex_apart_using_surface_tension(xj, A, B, pull_apart_direction);
+                        pull_apart_tendency = try_pull_vertex_apart_using_surface_tension(xj, A, B, SCC_list, SCC_labels, pull_apart_direction);
                     
                     if (pull_apart_tendency > 0)
                     {
                         SortableDirectionCandidate candidate;
                         candidate.vertex = xj;
-                        candidate.regions = Vec2i(A, B);
+                        candidate.scc = Vec2i(A, B);
                         candidate.direction = pull_apart_direction;
                         candidate.tendency = pull_apart_tendency;
-                        candidates.push_back(candidate);
+                        
+                        // find the right place in the candidate list to insert this candidate
+                        size_t k = 0;
+                        for ( ; k < candidates.size(); k++)
+                            if (candidate.tendency <= candidates[k].tendency)
+                                break;
+
+                        candidates.insert(candidates.begin() + k, candidate);
+                        candidate_SCC_lists.insert(candidate_SCC_lists.begin() + k, SCC_list);
+                        candidate_SCC_labels.insert(candidate_SCC_labels.begin() + k, SCC_labels);
+                        candidate_region_graphs.insert(candidate_region_graphs.begin() + k, region_graph);
                     }
                 }
             }
         }
     }
     
-    // sort the candidate pairs according to the strength of the tensile force
-    std::sort(candidates.begin(), candidates.end());
-    
-    // process the candidates from top
-    for ( ; candidates.size() > 0; candidates.pop_back())
+    // we only process ONE candidate in this pass, because afterwards it becomes impossible to maintain the consistency of the remaining candidates.
+    for ( ; candidates.size() > 0; candidates.pop_back(), candidate_SCC_lists.pop_back(), candidate_SCC_labels.pop_back(), candidate_region_graphs.pop_back())
     {
         size_t xj = candidates.back().vertex;
-        int A = candidates.back().regions[0];
-        int B = candidates.back().regions[1];
+        int A = candidates.back().scc[0];
+        int B = candidates.back().scc[1];
         Vec3d pull_apart_direction = candidates.back().direction;
         double pull_apart_tendency = candidates.back().tendency;
+        const std::vector<Vec2i> & SCC_labels = candidate_SCC_labels.back();
         
-        // check if this candidate is still valid
-        // due to processing other candidates prior to this, the vertex xj may have been deleted, region A and B may have
-        //  already come into contact, or the tendency may have dropped to negative.
-        if (mesh.m_vertex_to_triangle_map[xj].size() == 0)
-            continue;
-        
-        bool contact = false;
-        for (size_t i = 0; i < mesh.m_vertex_to_triangle_map[xj].size(); i++)
-        {
-            Vec2i label = mesh.get_triangle_label(mesh.m_vertex_to_triangle_map[xj][i]);
-            if ((label[0] == A && label[1] == B) || (label[0] == B && label[1] == A))
-            {
-                contact = true;
-                break;
-            }
-        }
-        if (contact)
-            continue;
-        
-        if (m_velocity_field_callback)
-            pull_apart_tendency = try_pull_vertex_apart_using_velocity_field(xj, A, B, pull_apart_direction);
-        else
-            pull_apart_tendency = try_pull_vertex_apart_using_surface_tension(xj, A, B, pull_apart_direction);
-        if (pull_apart_tendency < 0)
-            continue;
-        
+        // no need to do any check because this is the only candidate we process -- our intel about it is accurate.
+//        //check if this candidate is still valid
+//        // due to processing other candidates prior to this, the vertex xj may have been deleted, region A and B may have
+//        //  already come into contact (or even merged into one SCC), or the tendency may have dropped to negative.
+//        if (mesh.vertex_is_deleted(xj))
+//            continue;
+//    
+//        if (m_velocity_field_callback)
+//            pull_apart_tendency = try_pull_vertex_apart_using_velocity_field(xj, A, B, vertex_SCC_lists[xj], vertex_SCC_labels[xj], pull_apart_direction);
+//        else
+//            pull_apart_tendency = try_pull_vertex_apart_using_surface_tension(xj, A, B, vertex_SCC_lists[xj], vertex_SCC_labels[xj], pull_apart_direction);
+//        if (pull_apart_tendency < 0)
+//            continue;
+    
         if (m_surf.m_verbose)
-        {
             std::cout << "Attempting to pop vertex " << xj << " region " << A << " from region " << B << std::endl;
-        }
-        
+    
         // compute the desired destination positions, enforcing constraints
         Vec3c original_solid = m_surf.vertex_is_solid_3(xj);
         Vec3d original_position = m_surf.get_position(xj);
@@ -294,7 +305,7 @@ bool T1Transition::t1_pass()
         assert(edge_count > 0);
         mean_edge_length /= edge_count;
         
-        //        Vec3d pull_apart_offset = pull_apart_direction * mean_edge_length;
+//        Vec3d pull_apart_offset = pull_apart_direction * mean_edge_length;
         Vec3d pull_apart_offset = pull_apart_direction;
         
         Vec3d a_desired_position = original_position + pull_apart_offset * m_pull_apart_distance;
@@ -317,7 +328,7 @@ bool T1Transition::t1_pass()
         {
             size_t triangle = mesh.m_vertex_to_triangle_map[xj][j];
             
-            Vec2i label = mesh.get_triangle_label(triangle);
+            Vec2i label = SCC_labels[triangle];
             if (label[0] == A || label[1] == A)
                 A_faces.push_back(triangle);
         }
@@ -329,7 +340,7 @@ bool T1Transition::t1_pass()
             bool adjA = false;
             for (size_t k = 0; k < mesh.m_edge_to_triangle_map[edge].size(); k++)
             {
-                Vec2i label = mesh.get_triangle_label(mesh.m_edge_to_triangle_map[edge][k]);
+                Vec2i label = SCC_labels[mesh.m_edge_to_triangle_map[edge][k]];
                 if (label[0] == A || label[1] == A)
                     adjA = true;
             }
@@ -342,7 +353,7 @@ bool T1Transition::t1_pass()
         {
             if (m_surf.m_verbose)
                 std::cout << "Vertex popping: pulling vertex " << xj << " apart introduces collision." << std::endl;
-            continue;
+            continue;   // move on to the next candidate because we can't go through with the current one
         }
         
         m_surf.set_position(xj, b_desired_position);
@@ -351,7 +362,7 @@ bool T1Transition::t1_pass()
             if (m_surf.m_verbose)
                 std::cout << "Vertex popping: pulling vertex " << xj << " apart introduces collision." << std::endl;
             m_surf.set_position(xj, original_position);
-            continue;
+            continue;   // move on to the next candidate because we can't go through with the current one
         }
         
         // check intersection in the final configuration
@@ -458,9 +469,15 @@ bool T1Transition::t1_pass()
             if (m_surf.m_verbose)
                 std::cout << "Vertex popping: collision introduced." << std::endl;
             m_surf.set_position(xj, original_position);
-            continue;
+            continue;   // move on to the next candidate because we can't go through with the current one
         }
         
+        // all clear, now perform the pull-apart operation
+        
+        void * data = NULL;
+        if (m_surf.m_mesheventcallback)
+            m_surf.m_mesheventcallback->pre_t1(m_surf, xj, &data);
+
         // pull apart
         std::vector<size_t> verts_to_delete;
         std::vector<Vec3d> verts_to_create;
@@ -492,7 +509,7 @@ bool T1Transition::t1_pass()
         std::vector<Vec2i> face_labels_to_create;
         std::vector<size_t> faces_created;
         
-        triangulate_popped_vertex(xj, A, B, a, b, faces_to_delete, faces_to_create, face_labels_to_create);
+        triangulate_popped_vertex(xj, A, B, a, b, candidate_SCC_lists.back(), candidate_SCC_labels.back(), faces_to_delete, faces_to_create, face_labels_to_create);
         
         if (m_surf.m_verbose)
         {
@@ -512,6 +529,29 @@ bool T1Transition::t1_pass()
         
         m_surf.remove_vertex(xj);
         
+        // interpolate the remeshing velocities onto the new vertex
+        m_surf.pm_velocities[a] = m_surf.pm_velocities[xj];
+        m_surf.pm_velocities[b] = m_surf.pm_velocities[xj];
+
+        // update the target edge length
+        double new_target_edge_length_a = m_surf.compute_vertex_target_edge_length(a);
+        double new_target_edge_length_b = m_surf.compute_vertex_target_edge_length(b);
+        m_surf.m_target_edge_lengths[a] = new_target_edge_length_a;
+        m_surf.m_target_edge_lengths[b] = new_target_edge_length_b;
+        std::vector<size_t> new_onering;
+        m_surf.m_mesh.get_adjacent_vertices(a, new_onering);
+        for (size_t i = 0; i < new_onering.size(); i++)
+            if (new_target_edge_length_a > m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio)
+                new_target_edge_length_a = m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio;
+        m_surf.m_mesh.get_adjacent_vertices(b, new_onering);
+        for (size_t i = 0; i < new_onering.size(); i++)
+            if (new_target_edge_length_b > m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio)
+                new_target_edge_length_b = m_surf.vertex_target_edge_length(new_onering[i]) * m_surf.m_max_adjacent_target_edge_length_ratio;
+        if (new_target_edge_length_a > new_target_edge_length_b * m_surf.m_max_adjacent_target_edge_length_ratio)
+            new_target_edge_length_a = new_target_edge_length_b * m_surf.m_max_adjacent_target_edge_length_ratio;
+        m_surf.m_target_edge_lengths[a] = new_target_edge_length_a;
+        m_surf.m_target_edge_lengths[b] = new_target_edge_length_b;
+        
         // Add to new history log
         MeshUpdateEvent vertpop(MeshUpdateEvent::VERTEX_POP);
         vertpop.m_deleted_tris = faces_to_delete;
@@ -526,12 +566,140 @@ bool T1Transition::t1_pass()
         pop_occurred = true;
         
         if (m_surf.m_mesheventcallback)
-            m_surf.m_mesheventcallback->t1(m_surf, xj);
+            m_surf.m_mesheventcallback->post_t1(m_surf, xj, a, b, data);
         
+        break;  // don't go on to the next candidate because we only want to process one.
     }
     
     return pop_occurred;
 }
+    
+bool T1Transition::analyze_vertex(size_t xj, std::vector<FaceRegion> & scc_list, std::vector<Vec2i> & scc_labels)
+{
+    NonDestructiveTriMesh & mesh = m_surf.m_mesh;
+
+    scc_list.clear();
+    scc_labels = std::vector<Vec2i>(mesh.nt(), Vec2i(-1, -1));
+    
+    while (true)
+    {
+        // grab any face that hasn't been visited (unlabeled in SCC_labels), which must be in a new SCC
+        FaceRegion seed(mesh.nt(), true);
+        for (size_t j = 0; j < mesh.m_vertex_to_triangle_map[xj].size(); j++)
+        {
+            size_t tj = mesh.m_vertex_to_triangle_map[xj][j];
+            if (scc_labels[tj][0] < 0)
+            {
+                seed = FaceRegion(tj, true);
+                break;
+            }
+            if (scc_labels[tj][1] < 0)
+            {
+                seed = FaceRegion(tj, false);
+                break;
+            }
+        }
+        if (seed.first == mesh.nt())    // unable to find an unvisited face: we're done.
+            break;
+        
+        // create an entry in SCC_list for this new SCC
+        int new_SCC_id = (int)scc_list.size();
+        scc_list.push_back(seed);
+        
+        // trace the boundary of this SCC and label them in SCC_labels
+        FaceRegion current = seed;
+        while (true)
+        {
+            scc_labels[current.first][current.second ? 0 : 1] = new_SCC_id;
+            
+            Vec3st t = mesh.m_tris[current.first];
+            assert(mesh.triangle_contains_vertex(t, xj));
+            
+            size_t v1, v2;  // triangle t has vertices xj, v1, v2 in that order
+            if (t[0] == xj)         v1 = t[1], v2 = t[2];
+            else if (t[1] == xj)    v1 = t[2], v2 = t[0];
+            else if (t[2] == xj)    v1 = t[0], v2 = t[1];
+            
+            if (!current.second) std::swap(v1, v2);  // swap if necessary, such that xj, v1, v2 is oriented CCW when looking from outside this SCC
+            
+            size_t vnext = v2;  // look for the next face of this SCC in the direction of v2 (among the faces incident to the edge between xj and v2)
+            size_t enext = mesh.get_edge_index(xj, vnext);
+            
+            const std::vector<size_t> & efaces = mesh.m_edge_to_triangle_map[enext];
+            FaceRegion next;
+            if (efaces.size() == 2)
+            {
+                // enext is manifold, and we know one of the incident faces is t, so just get the other one.
+                next.first = (efaces[0] == current.first ? efaces[1] : efaces[0]);
+                next.second = (mesh.get_triangle_label(current.first) == mesh.get_triangle_label(next.first) ? current.second : !current.second);
+                assert((current.second == next.second ? mesh.get_triangle_label(next.first) : Vec2i(mesh.get_triangle_label(next.first)[1], mesh.get_triangle_label(next.first)[0])) == mesh.get_triangle_label(current.first));
+            } else
+            {
+                // enext is nonmanifold, and there may be more than one face (other than t) incident on enext that has the same set of material labels as t. We need to start looking at the
+                //  geometry in addition to the topology: sort the dihedral angles between t and the other faces, and the first will be the one we want.
+                Vec3d et = m_surf.pm_positions[vnext] - m_surf.pm_positions[xj];
+                et /= mag(et);  // unit tangent of the edge
+                
+                Vec3d dir0 = m_surf.pm_positions[v1] - m_surf.pm_positions[xj];
+                dir0 -= dot(dir0, et) * et; // project to make dir0 perpendicular to et
+                
+                int material_current = mesh.get_triangle_label(current.first)[current.second ? 0 : 1];
+                double minda = -1;
+                int mindaj = -1;
+                for (size_t j = 0; j < efaces.size(); j++)
+                {
+                    if (efaces[j] == current.first)
+                        continue;
+                    
+                    Vec3st tj = mesh.m_tris[efaces[j]];
+                    Vec2i material_j = mesh.get_triangle_label(efaces[j]);
+                    if (material_current != material_j[0] && material_current != material_j[1])   // this is an irrelevant face (it doesn't have the current SCC's material label)
+                        continue;
+                    
+                    if (material_current != material_j[mesh.oriented(xj, vnext, tj) ? 0 : 1])     // this face doesn't have the SCC's material label on the correct side (its labels aren't compatible with t)
+                        continue;
+                    
+                    size_t vthird = mesh.get_third_vertex(xj, vnext, tj);
+                    Vec3d dir1 = m_surf.pm_positions[vthird] - m_surf.pm_positions[xj];
+                    dir1 -= dot(dir1, et) * et; // project to make dir1 perpendicular to et
+                    
+                    // compute the dihedral angle from t to tj (i.e. from dir0 to dir1 around et)
+                    double da = 0;
+                    {
+                        Vec3d u = dir0;
+                        Vec3d v = cross(et, dir0);
+                        v /= mag(v);
+                        
+                        da = atan2(dot(dir1, v), dot(dir1, u));
+                        if (da < 0)
+                            da += 2 * M_PI;
+                    }
+                    
+                    if (minda < 0 || da < minda)
+                        minda = da, mindaj = j;
+                }
+                assert(mindaj >= 0);    // something's wrong if we can't find even one face with compatible labels with t
+                
+                next.first = efaces[mindaj];
+                next.second = (mesh.get_triangle_label(next.first)[0] == material_current ? true : false);
+                assert(mesh.get_triangle_label(next.first)[next.second ? 0 : 1] == material_current);
+            }
+            
+            if (scc_labels[next.first][next.second ? 0 : 1] >= 0)   // we've finished the traversal of the boundary of this SCC.
+            {
+                assert(scc_labels[next.first][next.second ? 0 : 1] == new_SCC_id);
+                break;
+            } else      // we haven't finished the traversal: move on to the next face.
+            {
+                current = next;
+            }
+        }
+        
+    }
+
+    return true;
+}
+
 
 
 // --------------------------------------------------------
@@ -540,7 +708,7 @@ bool T1Transition::t1_pass()
 ///
 // --------------------------------------------------------
 
-double T1Transition::try_pull_vertex_apart_using_surface_tension(size_t xj, int A, int B, Vec3d & pull_apart_direction)
+double T1Transition::try_pull_vertex_apart_using_surface_tension(size_t xj, int A, int B, const std::vector<FaceRegion> & scc_list, const std::vector<Vec2i> & scc_labels, Vec3d & pull_apart_direction)
 {
     NonDestructiveTriMesh & mesh = m_surf.m_mesh;
     
@@ -568,7 +736,7 @@ double T1Transition::try_pull_vertex_apart_using_surface_tension(size_t xj, int 
         Vec3d x0 = m_surf.get_position(v0);
         Vec3d x1 = m_surf.get_position(v1);
         
-        Vec2i label = mesh.get_triangle_label(triangle);
+        Vec2i label = scc_labels[triangle];
         if (label[0] == A || label[1] == A)
         {
             vertsA.push_back(x0);
@@ -620,7 +788,7 @@ double T1Transition::try_pull_vertex_apart_using_surface_tension(size_t xj, int 
     
     size_t a = mesh.nv() + 1;   // placeholder vertices
     size_t b = mesh.nv() + 2;
-    triangulate_popped_vertex(xj, A, B, a, b, faces_to_delete, faces_to_create, face_labels_to_create);
+    triangulate_popped_vertex(xj, A, B, a, b, scc_list, scc_labels, faces_to_delete, faces_to_create, face_labels_to_create);
     
     // compute pre-pull-apart surface area
     double pre_area = 0;
@@ -636,10 +804,10 @@ double T1Transition::try_pull_vertex_apart_using_surface_tension(size_t xj, int 
         for (int j = 0; j < 3; j++)
         {
             if (t[j] == a)
-                //                pos[j] = xxj + pull_apart_direction * mean_edge_length * m_pull_apart_distance;
+//                pos[j] = xxj + pull_apart_direction * mean_edge_length * m_pull_apart_distance;
                 pos[j] = xxj + pull_apart_direction * m_pull_apart_distance;
             else if (t[j] == b)
-                //                pos[j] = xxj - pull_apart_direction * mean_edge_length * m_pull_apart_distance;
+//                pos[j] = xxj - pull_apart_direction * mean_edge_length * m_pull_apart_distance;
                 pos[j] = xxj - pull_apart_direction * m_pull_apart_distance;
             else
                 pos[j] = m_surf.get_position(t[j]);
@@ -658,7 +826,7 @@ double T1Transition::try_pull_vertex_apart_using_surface_tension(size_t xj, int 
 ///
 // --------------------------------------------------------
 
-double T1Transition::try_pull_vertex_apart_using_velocity_field(size_t xj, int A, int B, Vec3d & pull_apart_direction)
+double T1Transition::try_pull_vertex_apart_using_velocity_field(size_t xj, int A, int B, const std::vector<FaceRegion> & scc_list, const std::vector<Vec2i> & scc_labels, Vec3d & pull_apart_direction)
 {
     NonDestructiveTriMesh & mesh = m_surf.m_mesh;
     
@@ -686,7 +854,7 @@ double T1Transition::try_pull_vertex_apart_using_velocity_field(size_t xj, int A
         Vec3d x0 = m_surf.get_position(v0);
         Vec3d x1 = m_surf.get_position(v1);
         
-        Vec2i label = mesh.get_triangle_label(triangle);
+        Vec2i label = scc_labels[triangle];
         if (label[0] == A || label[1] == A)
         {
             vertsA.push_back(x0);
@@ -731,22 +899,22 @@ double T1Transition::try_pull_vertex_apart_using_velocity_field(size_t xj, int A
     
     // decide the final positions
     Vec3d xxj = m_surf.get_position(xj);
-    //    Vec3d x_a = xxj + pull_apart_direction * mean_edge_length * m_pull_apart_distance;
-    //    Vec3d x_b = xxj - pull_apart_direction * mean_edge_length * m_pull_apart_distance;
+//    Vec3d x_a = xxj + pull_apart_direction * mean_edge_length * m_pull_apart_distance;
+//    Vec3d x_b = xxj - pull_apart_direction * mean_edge_length * m_pull_apart_distance;
     Vec3d x_a = xxj + pull_apart_direction * m_pull_apart_distance;
     Vec3d x_b = xxj - pull_apart_direction * m_pull_apart_distance;
     
-    //    Vec3d vxj = m_velocity_field_callback->sampleVelocity(xxj);
+//    Vec3d vxj = m_velocity_field_callback->sampleVelocity(xxj);
     Vec3d v_a = m_velocity_field_callback->sampleVelocity(x_a);
     Vec3d v_b = m_velocity_field_callback->sampleVelocity(x_b);
     
-    //    double divergence = dot(v_a - v_b, pull_apart_direction) / (mean_edge_length * m_pull_apart_distance * 2);
+//    double divergence = dot(v_a - v_b, pull_apart_direction) / (mean_edge_length * m_pull_apart_distance * 2);
     double divergence = dot(v_a - v_b, pull_apart_direction) / (m_pull_apart_distance * 2);
     
     return divergence;
 }
 
-void T1Transition::triangulate_popped_vertex(size_t xj, int A, int B, size_t a, size_t b, std::vector<size_t> & faces_to_delete, std::vector<Vec3st> & faces_to_create, std::vector<Vec2i> & face_labels_to_create)
+void T1Transition::triangulate_popped_vertex(size_t xj, int A, int B, size_t a, size_t b, const std::vector<FaceRegion> & SCC_list, const std::vector<Vec2i> & SCC_labels, std::vector<size_t> & faces_to_delete, std::vector<Vec3st> & faces_to_create, std::vector<Vec2i> & face_labels_to_create)
 {
     NonDestructiveTriMesh & mesh = m_surf.m_mesh;
     
@@ -772,15 +940,15 @@ void T1Transition::triangulate_popped_vertex(size_t xj, int A, int B, size_t a, 
         if (!mesh.oriented(v0, v1, mesh.get_triangle(triangle)))
             std::swap(v0, v1);
         
-        Vec2i label = mesh.get_triangle_label(triangle);
+        Vec2i label = SCC_labels[triangle];
         if (label[0] == A || label[1] == A)
         {
             faces_to_create.push_back(Vec3st(a, v0, v1));
-            face_labels_to_create.push_back(label);
+            face_labels_to_create.push_back(Vec2i(mesh.get_triangle_label(SCC_list[label[0]].first)[SCC_list[label[0]].second ? 0 : 1], mesh.get_triangle_label(SCC_list[label[1]].first)[SCC_list[label[1]].second ? 0 : 1]));
         } else
         {
             faces_to_create.push_back(Vec3st(b, v0, v1));
-            face_labels_to_create.push_back(label);
+            face_labels_to_create.push_back(Vec2i(mesh.get_triangle_label(SCC_list[label[0]].first)[SCC_list[label[0]].second ? 0 : 1], mesh.get_triangle_label(SCC_list[label[1]].first)[SCC_list[label[1]].second ? 0 : 1]));
         }
     }
     
@@ -790,7 +958,7 @@ void T1Transition::triangulate_popped_vertex(size_t xj, int A, int B, size_t a, 
         size_t edge = mesh.m_vertex_to_edge_map[xj][j];
         for (size_t k = 0; k < mesh.m_edge_to_triangle_map[edge].size(); k++)
         {
-            Vec2i label = mesh.get_triangle_label(mesh.m_edge_to_triangle_map[edge][k]);
+            Vec2i label = SCC_labels[mesh.m_edge_to_triangle_map[edge][k]];
             if (label[0] == A || label[1] == A)
             {
                 A_edges.push_back(edge);
@@ -798,6 +966,8 @@ void T1Transition::triangulate_popped_vertex(size_t xj, int A, int B, size_t a, 
             }
         }
     }
+    
+    return;
     
     // sweep A region edges
     for (size_t i = 0; i < A_edges.size(); i++)
@@ -812,32 +982,36 @@ void T1Transition::triangulate_popped_vertex(size_t xj, int A, int B, size_t a, 
             size_t triangle = mesh.m_edge_to_triangle_map[edge][j];
             bool oriented = mesh.oriented(xj, v2, mesh.get_triangle(triangle));
             
-            Vec2i label = mesh.get_triangle_label(triangle);
+            Vec2i label = SCC_labels[triangle];
             
             if ((label[0] == A &&  oriented) ||
                 (label[1] == A && !oriented))
             {
+                assert(upper_region == -1); // by the definition of SCC, this should be unique
                 upper_region = (label[0] == A ? label[1] : label[0]);
             }
             if ((label[0] == A && !oriented) ||
                 (label[1] == A &&  oriented))
             {
+                assert(lower_region == -1); // by the definition of SCC, this should be unique
                 lower_region = (label[0] == A ? label[1] : label[0]);
             }
         }
         
         if (upper_region >= 0 && lower_region >= 0) // if this is not true, then the neighborhood around this edge is not complete, which can oly happen on the boundary.
         {
-            if (upper_region == lower_region)
+            Vec2i new_face_label = Vec2i(mesh.get_triangle_label(SCC_list[lower_region].first)[SCC_list[lower_region].second ? 0 : 1], mesh.get_triangle_label(SCC_list[upper_region].first)[SCC_list[upper_region].second ? 0 : 1]);
+            if (new_face_label[0] == new_face_label[1])
             {
                 // this means either this edge is just a manifold edge between region A faces (thus pulling apart xj doesn't affect this edge), or it is an X junction edge with the same region above and below (pulling this edge apart creates a tunnel connecting them)
                 // in either case, no triangle should be created.
             } else
             {
                 faces_to_create.push_back(Vec3st(a, b, v2));
-                face_labels_to_create.push_back(Vec2i(lower_region, upper_region));
+                face_labels_to_create.push_back(new_face_label);
             }
         }
+        assert(upper_region >= 0 && lower_region >= 0); // LosTopos doesn't really support open boundary.
     }
     
 }

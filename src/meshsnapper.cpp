@@ -41,10 +41,10 @@ extern RunStats g_stats;
 
 MeshSnapper::MeshSnapper( SurfTrack& surf, bool use_curvature, bool remesh_boundaries, int max_curvature_multiplier ) :
 m_surf( surf ),
-m_edgesplitter(surf, use_curvature, remesh_boundaries, max_curvature_multiplier),
+m_edge_threshold(0.12),
+m_face_threshold(0.1),
 m_facesplitter(surf),
-m_edge_threshold(0.3),
-m_face_threshold(0.25)
+m_edgesplitter(surf, use_curvature, remesh_boundaries, max_curvature_multiplier)
 {}
 
 
@@ -154,7 +154,7 @@ bool MeshSnapper::snap_introduces_normal_inversion( size_t source_vertex,
             return true;
         }
         
-        if ( new_area < m_surf.m_min_triangle_area )
+        if ( new_area < m_surf.m_min_triangle_area && new_area < mag2(m_surf.get_position(source_vertex) - m_surf.get_position(destination_vertex)) * 0.1 )
         {
             if ( m_surf.m_verbose ) { std::cout << "collapse edge introduces tiny triangle area" << std::endl; }
             
@@ -289,30 +289,56 @@ bool MeshSnapper::snap_vertex_pair( size_t vertex_to_keep, size_t vertex_to_dele
         << " --- Vertex to keep: " << vertex_to_keep << std::endl;
     }
     
-    // --------------
-    // decide on new vertex position: just take the mass-weighted average of the two points to be snapped, so that constraints marked by infinite masses are respected.
+//    // --------------
+//    // decide on new vertex position: just take the mass-weighted average of the two points to be snapped, so that constraints marked by infinite masses are respected.
+//    
+//    Vec3d m0 = m_surf.m_masses[vertex_to_delete];
+//    Vec3d m1 = m_surf.m_masses[vertex_to_keep];
+//    
+//    Vec3d vertex_new_position;
+//    for (int i = 0; i < 3; i++)
+//    {
+//        if (m0[i] == std::numeric_limits<double>::infinity() && m1[i] == std::numeric_limits<double>::infinity())
+//        {
+//            // both vertices are constrained in this direction: this requires the two cooresponding coordindates are equal
+//            assert(m_surf.get_position(vertex_to_delete)[i] == m_surf.get_position(vertex_to_keep)[i]);
+//            vertex_new_position[i] = m_surf.get_position(vertex_to_delete)[i];
+//        } else if (m0[i] == std::numeric_limits<double>::infinity())
+//        {
+//            vertex_new_position[i] = m_surf.get_position(vertex_to_delete)[i];
+//        } else if (m1[i] == std::numeric_limits<double>::infinity())
+//        {
+//            vertex_new_position[i] = m_surf.get_position(vertex_to_keep)[i];
+//        } else
+//        {
+//            vertex_new_position[i] = 0.5*(m_surf.get_position(vertex_to_delete)[i] + m_surf.get_position(vertex_to_keep)[i]);
+//        }
+//    }
     
-    Vec3d m0 = m_surf.m_masses[vertex_to_delete];
-    Vec3d m1 = m_surf.m_masses[vertex_to_keep];
+    Vec3d vertex_new_position = 0.5 * (m_surf.get_position(vertex_to_delete) + m_surf.get_position((vertex_to_keep)));
+    Vec3c vertex_new_solid_label(0, 0, 0);
     
-    Vec3d vertex_new_position;
-    for (int i = 0; i < 3; i++)
+    bool keep_vert_is_any_solid = m_surf.vertex_is_any_solid(vertex_to_keep);
+    bool delete_vert_is_any_solid = m_surf.vertex_is_any_solid(vertex_to_delete);
+    if (keep_vert_is_any_solid || delete_vert_is_any_solid)
     {
-        if (m0[i] == std::numeric_limits<double>::infinity() && m1[i] == std::numeric_limits<double>::infinity())
+        assert(m_surf.m_solid_vertices_callback);
+        
+        if (!keep_vert_is_any_solid)
+            std::swap(vertex_to_keep, vertex_to_delete);
+        
+        Vec3d newpos = vertex_new_position;
+        if (!m_surf.m_solid_vertices_callback->generate_snapped_position(m_surf, vertex_to_keep, vertex_to_delete, newpos))
         {
-            // both vertices are constrained in this direction: this requires the two cooresponding coordindates are equal
-            assert(m_surf.get_position(vertex_to_delete)[i] == m_surf.get_position(vertex_to_keep)[i]);
-            vertex_new_position[i] = m_surf.get_position(vertex_to_delete)[i];
-        } else if (m0[i] == std::numeric_limits<double>::infinity())
-        {
-            vertex_new_position[i] = m_surf.get_position(vertex_to_delete)[i];
-        } else if (m1[i] == std::numeric_limits<double>::infinity())
-        {
-            vertex_new_position[i] = m_surf.get_position(vertex_to_keep)[i];
-        } else
-        {
-            vertex_new_position[i] = 0.5*(m_surf.get_position(vertex_to_delete)[i] + m_surf.get_position(vertex_to_keep)[i]);
+            // the callback decides this vertex pair should not be snapped
+            if (m_surf.m_verbose)
+                std::cout << "Constraint callback vetoed collapsing." << std::endl;
+            return false;
         }
+        
+        vertex_new_position = newpos;
+        
+        vertex_new_solid_label = m_surf.m_solid_vertices_callback->generate_snapped_solid_label(m_surf, vertex_to_keep, vertex_to_delete, m_surf.vertex_is_solid_3(vertex_to_keep), m_surf.vertex_is_solid_3(vertex_to_delete));
     }
     
     if ( m_surf.m_verbose ) {
@@ -367,8 +393,17 @@ bool MeshSnapper::snap_vertex_pair( size_t vertex_to_keep, size_t vertex_to_dele
         }
     }
     
-    // --------------
+//    if (!m_surf.vertex_is_any_solid(vertex_to_keep) && m_surf.vertex_is_any_solid(vertex_to_delete))
+//        std::swap(vertex_to_delete, vertex_to_keep);
     
+    
+    // --------------
+    // all clear, now perform the snap
+    
+    void * data = NULL;
+    if (m_surf.m_mesheventcallback)
+        m_surf.m_mesheventcallback->pre_snap(m_surf, vertex_to_delete, vertex_to_keep, &data);
+
     // start building history data
     MeshUpdateEvent collapse(MeshUpdateEvent::SNAP);
     collapse.m_vert_position = vertex_new_position;
@@ -379,6 +414,14 @@ bool MeshSnapper::snap_vertex_pair( size_t vertex_to_keep, size_t vertex_to_dele
     
     m_surf.set_position( vertex_to_keep, vertex_new_position );
     m_surf.set_newposition( vertex_to_keep, vertex_new_position );
+
+    for (int i = 0; i < 3; i++)
+    {
+        if (vertex_new_solid_label[i])
+            m_surf.m_masses[vertex_to_keep][i] = std::numeric_limits<double>::infinity();
+        else
+            m_surf.m_masses[vertex_to_keep][i] = 1;
+    }
     
     // Find anything pointing to the doomed vertex and change it
     
@@ -432,11 +475,20 @@ bool MeshSnapper::snap_vertex_pair( size_t vertex_to_keep, size_t vertex_to_dele
     
     m_surf.m_mesh.update_is_boundary_vertex( vertex_to_keep );
     
+    // update the remeshing velocity
+    m_surf.pm_velocities[vertex_to_keep] = (m_surf.pm_velocities[vertex_to_keep] + m_surf.pm_velocities[vertex_to_delete]) / 2;
+
+    // update target edge lengths
+    m_surf.m_target_edge_lengths[vertex_to_keep] = std::min(m_surf.m_target_edge_lengths[vertex_to_keep], m_surf.m_target_edge_lengths[vertex_to_delete]);
+    
     // Store the history
     m_surf.m_mesh_change_history.push_back(collapse);
     
+    // clean up degenerate triangles and tets
+    m_surf.trim_degeneracies( m_surf.m_dirty_triangles );
+
     if (m_surf.m_mesheventcallback)
-        m_surf.m_mesheventcallback->snap(m_surf, vertex_to_delete, vertex_to_keep);
+        m_surf.m_mesheventcallback->post_snap(m_surf, vertex_to_keep, vertex_to_delete, data);
     
     return true;
 }
@@ -480,7 +532,28 @@ bool MeshSnapper::snap_edge_pair( size_t edge0, size_t edge1)
         m_surf.m_mesheventcallback->log() << "ee snap: edge0 = " << edge0 << ": " << edge_data0[0] << " (" << v0 << ") -> " << edge_data0[1] << " (" << v1 << ") edge1 = " << edge1 << ": " << edge_data1[0] << " (" << v2 << ") -> " << edge_data1[1] << " (" << v3 << ")" << std::endl;
         m_surf.m_mesheventcallback->log() << "s0 = " << s0 << " s2 = " << s2 << " dist = " << distance << " midpoint0 = " << midpoint0 << " midpoint1 = " << midpoint1 << std::endl;
     }
-    size_t snapping_vert0;
+
+    size_t snapping_vert0 = m_surf.m_mesh.nv();
+    size_t snapping_vert1 = m_surf.m_mesh.nv();
+
+    // droplets:
+    // special handling to preserve the triple junction: all-solid edge vs non-all-solid edge, in which case the two edges are on two sides of the triple junction and snapping them is a bad idea
+    // unlike with vf snapping, we don't even need to check if snapping can happen on endpoints which are on the triple junction; that case should be more easily handled by collapsing the triple junction edges.
+    bool v0s = m_surf.vertex_is_any_solid(edge_data0[0]);
+    bool v1s = m_surf.vertex_is_any_solid(edge_data0[1]);
+    bool v2s = m_surf.vertex_is_any_solid(edge_data1[0]);
+    bool v3s = m_surf.vertex_is_any_solid(edge_data1[1]);
+    if ((((v0s && v1s) && (!v2s || !v3s)) ||
+         ((v2s && v3s) && (!v0s || !v1s))) && distance > 0.01 * m_surf.m_merge_proximity_epsilon)   // added a distance criteria, so that extremely close proximities will still be resolved regardless of the triple junction. Not resolving these will be dangerous because near coincidence meshes won't be effectively separated by the dynamics.
+    {
+        // we can't allow this case to go through. snapping in the middle of a non-triple-junction edge or to a non-triple-junction end point can perturb the triple junction geometry
+        if (m_surf.m_mesheventcallback)
+            m_surf.m_mesheventcallback->log() << "canceling snapping to preserve triple junction" << std::endl;
+        return false;
+
+    } else  // the general case, which is the original code
+    {
+
     if(s0 > 1 - m_edge_threshold) {
         snapping_vert0 = edge_data0[0];
         if (m_surf.m_mesheventcallback)
@@ -496,12 +569,11 @@ bool MeshSnapper::snap_edge_pair( size_t edge0, size_t edge1)
         if (m_surf.m_mesheventcallback)
             m_surf.m_mesheventcallback->log() << "attemping to split edge0 at " << midpoint0 << std::endl;
         
-        if(!m_edgesplitter.edge_is_splittable(edge0) || !m_edgesplitter.split_edge(edge0, split_result, false, true, &midpoint0))
+        if(!m_edgesplitter.edge_is_splittable(edge0) || !m_edgesplitter.split_edge(edge0, split_result, false, true, &midpoint0, std::vector<size_t>(), true))
             return false;
         snapping_vert0 = split_result;
     }
     
-    size_t snapping_vert1;
     if(s2 > 1 - m_edge_threshold) {
         snapping_vert1 = edge_data1[0];
         if (m_surf.m_mesheventcallback)
@@ -517,17 +589,37 @@ bool MeshSnapper::snap_edge_pair( size_t edge0, size_t edge1)
         if (m_surf.m_mesheventcallback)
             m_surf.m_mesheventcallback->log() << "attempting to split edge1 at " << midpoint1 << std::endl;
         
-        if(!m_edgesplitter.edge_is_splittable(edge1) || !m_edgesplitter.split_edge(edge1, split_result, false, true, &midpoint1, std::vector<size_t>(1, snapping_vert0)))
+        if(!m_edgesplitter.edge_is_splittable(edge1) || !m_edgesplitter.split_edge(edge1, split_result, false, true, &midpoint1, std::vector<size_t>(1, snapping_vert0), true))
             return false;
-        
         snapping_vert1 = split_result;
+    }
+        
     }
     
     if (m_surf.m_mesheventcallback)
         m_surf.m_mesheventcallback->log() << "attempting to snap vertex " << snapping_vert0 << " to " << snapping_vert1 << std::endl;
     
     //finally, if the splitting succeeds and we have a good vertex pair, try to snap them.
-    bool success = vert_pair_is_snappable(snapping_vert0, snapping_vert1) && snap_vertex_pair(snapping_vert0, snapping_vert1);
+//    bool success = vert_pair_is_snappable(snapping_vert0, snapping_vert1) && snap_vertex_pair(snapping_vert0, snapping_vert1);
+    bool success = true;
+    if (!vert_pair_is_snappable(snapping_vert0, snapping_vert1))
+    {
+        success = false;
+    } else
+    {
+        if (m_surf.m_mesh.get_edge_index(snapping_vert0, snapping_vert1) != m_surf.m_mesh.ne())
+        {
+            // there's an edge connecting the two vertices. it's the responsibility of the collapser, which does extra checks.
+            // instead of calling it a day, we should bringin in the collapser to get the job done right here.
+            size_t edge_to_collapse = m_surf.m_mesh.get_edge_index(snapping_vert0, snapping_vert1);
+            double dummy;
+            if (m_surf.m_collapser.edge_is_collapsible(edge_to_collapse, dummy))
+                success = m_surf.m_collapser.collapse_edge(edge_to_collapse);
+        } else
+        {
+            success = snap_vertex_pair(snapping_vert0, snapping_vert1);
+        }
+    }
     
     if (m_surf.m_mesheventcallback)
         m_surf.m_mesheventcallback->log() << "snap " << (success ? "succeeded" : "failed") << std::endl;
@@ -571,7 +663,113 @@ bool MeshSnapper::snap_face_vertex_pair( size_t face, size_t vertex)
         m_surf.m_mesheventcallback->log() << "s0 = " << s0 << " s1 = " << s1 << " s2 = " << s2 << " dist = " << dist << " nearest = " << (t0_pos * s0 + t1_pos * s1 + t2_pos * s2) << std::endl;
     }
     size_t snapping_vertex;
-    if(s0 < m_face_threshold) {
+    
+    // droplets:
+    // special handling to preserve the triple junction: free vertex vs full-solid face and solid vertex vs half-solid face
+    // the strategy is to snap the vertex to some point on the triple junction (either a triple junction vertex or a triple junction edge), and prohibit snapping to the middle of a face on the other side of the triple junction.
+    // the case of solid vertex vs full-solid face (a solid vertex approaching a neighboring face in a same plane) is also treated here, although it can also be resolved by the general case below, or handled by edge splitting, flipping and collapsing
+    bool vs = m_surf.vertex_is_any_solid(vertex);
+    bool t0s = m_surf.vertex_is_any_solid(face_data[0]);
+    bool t1s = m_surf.vertex_is_any_solid(face_data[1]);
+    bool t2s = m_surf.vertex_is_any_solid(face_data[2]);
+    if (((vs && (t0s || t1s || t2s)) ||
+        (!vs && (t0s && t1s && t2s))) && dist > 0.01 * m_surf.m_merge_proximity_epsilon)   // added a distance criteria, so that extremely close proximities will still be resolved regardless of the triple junction. Not resolving these will be dangerous because near coincidence meshes won't be effectively separated by the dynamics.
+    {
+        bool t0_on_triple_junction = false;
+        for (size_t i = 0; i < m_surf.m_mesh.m_vertex_to_triangle_map[face_data[0]].size(); i++)
+        {
+            Vec3st t = m_surf.m_mesh.m_tris[m_surf.m_mesh.m_vertex_to_triangle_map[face_data[0]][i]];
+            if (!(m_surf.vertex_is_any_solid(t[0]) && m_surf.vertex_is_any_solid(t[1]) && m_surf.vertex_is_any_solid(t[2])))
+                t0_on_triple_junction = true;
+        }
+        t0_on_triple_junction &= m_surf.vertex_is_any_solid(face_data[0]);  // the vertex is on triple junction if it is a solid vertex and incident to at least one non-fully-solid face
+        bool t1_on_triple_junction = false;
+        for (size_t i = 0; i < m_surf.m_mesh.m_vertex_to_triangle_map[face_data[1]].size(); i++)
+        {
+            Vec3st t = m_surf.m_mesh.m_tris[m_surf.m_mesh.m_vertex_to_triangle_map[face_data[1]][i]];
+            if (!(m_surf.vertex_is_any_solid(t[0]) && m_surf.vertex_is_any_solid(t[1]) && m_surf.vertex_is_any_solid(t[2])))
+                t1_on_triple_junction = true;
+        }
+        t1_on_triple_junction &= m_surf.vertex_is_any_solid(face_data[1]);  // the vertex is on triple junction if it is a solid vertex and incident to at least one non-fully-solid face
+        bool t2_on_triple_junction = false;
+        for (size_t i = 0; i < m_surf.m_mesh.m_vertex_to_triangle_map[face_data[2]].size(); i++)
+        {
+            Vec3st t = m_surf.m_mesh.m_tris[m_surf.m_mesh.m_vertex_to_triangle_map[face_data[2]][i]];
+            if (!(m_surf.vertex_is_any_solid(t[0]) && m_surf.vertex_is_any_solid(t[1]) && m_surf.vertex_is_any_solid(t[2])))
+                t2_on_triple_junction = true;
+        }
+        t2_on_triple_junction &= m_surf.vertex_is_any_solid(face_data[2]);  // the vertex is on triple junction if it is a solid vertex and incident to at least one non-fully-solid face
+        
+        if (t0_on_triple_junction && s1 < m_face_threshold && s2 < m_face_threshold)
+        {
+            snapping_vertex = face_data[0];
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "snap to triple junction vertex v0" << std::endl;
+        } else if (t1_on_triple_junction && s2 < m_face_threshold && s0 < m_face_threshold)
+        {
+            snapping_vertex = face_data[1];
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "snap to triple junction vertex v1" << std::endl;
+        } else if (t2_on_triple_junction && s0 < m_face_threshold && s1 < m_face_threshold)
+        {
+            snapping_vertex = face_data[2];
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "snap to triple junction vertex v2" << std::endl;
+        } else if (t0_on_triple_junction && t1_on_triple_junction && s2 < m_face_threshold)
+        {
+            size_t edge_to_split = m_surf.m_mesh.m_triangle_to_edge_map[face][0];
+            assert (edge_to_split == m_surf.m_mesh.get_edge_index(face_data[0], face_data[1]));
+            
+            Vec3d split_point = (s0 * t0_pos + s1 * t1_pos) / (s0 + s1);
+            
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "attempting to snap to triple junction edge e01: " << split_point << std::endl;
+            
+            size_t result_vertex;
+            if (!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point, std::vector<size_t>(), true))
+                return false;
+            
+            snapping_vertex = result_vertex;
+        } else if (t1_on_triple_junction && t2_on_triple_junction && s0 < m_face_threshold)
+        {
+            size_t edge_to_split = m_surf.m_mesh.m_triangle_to_edge_map[face][1];
+            assert (edge_to_split == m_surf.m_mesh.get_edge_index(face_data[1], face_data[2]));
+            
+            Vec3d split_point = (s1 * t1_pos + s2 * t2_pos) / (s1 + s2);
+            
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "attempting to snap to triple junction edge e12: " << split_point << std::endl;
+            
+            size_t result_vertex;
+            if (!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point, std::vector<size_t>(), true))
+                return false;
+            
+            snapping_vertex = result_vertex;
+        } else if (t2_on_triple_junction && t0_on_triple_junction && s1 < m_face_threshold)
+        {
+            size_t edge_to_split = m_surf.m_mesh.m_triangle_to_edge_map[face][2];
+            assert (edge_to_split == m_surf.m_mesh.get_edge_index(face_data[2], face_data[0]));
+            
+            Vec3d split_point = (s2 * t2_pos + s0 * t0_pos) / (s2 + s0);
+            
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "attempting to snap to triple junction edge e20: " << split_point << std::endl;
+            
+            size_t result_vertex;
+            if (!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point, std::vector<size_t>(), true))
+                return false;
+            
+            snapping_vertex = result_vertex;
+        } else
+        {
+            // we can't allow this case to go through. subdividing this face and snapping there will either create a flap next to the triple junction (which will end up perturbing the triple junction too much when the flap is removed), or create non-manifoldness in the triple junction.
+            if (m_surf.m_mesheventcallback)
+                m_surf.m_mesheventcallback->log() << "can't find a point to snap to on the face" << std::endl;
+            return false;
+        }
+        
+    } else  // the general case below, which is the original code
+    if (s0 < m_face_threshold) {
         if(s1 < m_face_threshold) {
             snapping_vertex = face_data[2];
             if (m_surf.m_mesheventcallback)
@@ -592,7 +790,7 @@ bool MeshSnapper::snap_face_vertex_pair( size_t face, size_t vertex)
             if (m_surf.m_mesheventcallback)
                 m_surf.m_mesheventcallback->log() << "attempting to snap to e12: " << split_point << std::endl;
             
-            if(!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point))
+            if(!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point, std::vector<size_t>(), true))
                 return false;
             
             snapping_vertex = result_vertex;
@@ -614,7 +812,7 @@ bool MeshSnapper::snap_face_vertex_pair( size_t face, size_t vertex)
             if (m_surf.m_mesheventcallback)
                 m_surf.m_mesheventcallback->log() << "attempting to snap to e02: " << split_point << std::endl;
             
-            if(!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point))
+            if(!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point, std::vector<size_t>(), true))
                 return false;
             
             snapping_vertex = result_vertex;
@@ -630,7 +828,7 @@ bool MeshSnapper::snap_face_vertex_pair( size_t face, size_t vertex)
         if (m_surf.m_mesheventcallback)
             m_surf.m_mesheventcallback->log() << "attempting to snap to e01: " << split_point << std::endl;
         
-        if(!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point))
+        if(!m_edgesplitter.edge_is_splittable(edge_to_split) || !m_edgesplitter.split_edge(edge_to_split, result_vertex, false, true, &split_point, std::vector<size_t>(), true))
             return false;
         
         snapping_vertex = result_vertex;
@@ -651,7 +849,26 @@ bool MeshSnapper::snap_face_vertex_pair( size_t face, size_t vertex)
         m_surf.m_mesheventcallback->log() << "attempting to snap vertex " << snapping_vertex << " to " << vertex << std::endl;
     
     //finally, if the splitting succeeds and we have a good vertex pair, try to snap them.
-    bool success = vert_pair_is_snappable(snapping_vertex, vertex) && snap_vertex_pair(snapping_vertex, vertex);
+//    bool success = vert_pair_is_snappable(snapping_vertex, vertex) && snap_vertex_pair(snapping_vertex, vertex);
+    bool success = true;
+    if (!vert_pair_is_snappable(snapping_vertex, vertex))
+    {
+        success = false;
+    } else
+    {
+        if (m_surf.m_mesh.get_edge_index(snapping_vertex, vertex) != m_surf.m_mesh.ne())
+        {
+            // there's an edge connecting the two vertices. it's the responsibility of the collapser, which does extra checks.
+            // instead of calling it a day, we should bringin in the collapser to get the job done right here.
+            size_t edge_to_collapse = m_surf.m_mesh.get_edge_index(snapping_vertex, vertex);
+            double dummy;
+            if (m_surf.m_collapser.edge_is_collapsible(edge_to_collapse, dummy))
+                success = m_surf.m_collapser.collapse_edge(edge_to_collapse);
+        } else
+        {
+            success = snap_vertex_pair(snapping_vertex, vertex);
+        }
+    }
     
     if (m_surf.m_mesheventcallback)
         m_surf.m_mesheventcallback->log() << "snap " << (success ? "succeeded" : "failed") << std::endl;
@@ -675,10 +892,13 @@ bool MeshSnapper::vert_pair_is_snappable( size_t vert0, size_t vert1 )
     //shouldn't be calling this on duplicate vertices
     assert(vert0 != vert1);
     
-    //Check if there is an edge connecting the two vertices - if so, we can't do the snap
-    size_t edge_id = m_surf.m_mesh.get_edge_index(vert0, vert1);
-    if(edge_id != m_surf.m_mesh.m_edges.size())
-        return false;
+//    //Check if there is an edge connecting the two vertices - if so, we can't do the snap
+//    size_t edge_id = m_surf.m_mesh.get_edge_index(vert0, vert1);
+//    if(edge_id != m_surf.m_mesh.m_edges.size())
+//        return false;
+    
+    // New policy: If there's an edge connecting the two vertices, don't just bail out saying "snap failed". Instead, call the collapser to process it right away.
+    // This is important when there's adaptive remeshing. For example, in the case of a tight fold (which itself could result from collapsing in a relatively flat and uninteresting surface), snapping could create a very short edge, which, if not collapsed right away, will cause the splitter to go crazy around it to the point that collapser may not be able to bring it back down to a coarse mesh.
     
     return true;
     
@@ -770,7 +990,26 @@ bool MeshSnapper::edge_pair_is_snappable( size_t edge0, size_t edge1, double& cu
                               m_surf.get_position(edge_data1[1]),
                               current_length, s0, s2, normal );
     
-    if(current_length < m_surf.m_merge_proximity_epsilon) {
+    // for Droplets: use a different (smaller) merging proximity epsilon for liquid sheet puncture, if enabled (on the other hand, merging of two liquid volumes uses the original epsilon)
+    Vec3d n0 = Vec3d(0, 0, 0);  // liquid outward normal
+    for (size_t i = 0; i < m_surf.m_mesh.m_edge_to_triangle_map[edge0].size(); i++)
+    {
+        size_t t = m_surf.m_mesh.m_edge_to_triangle_map[edge0][i];
+        n0 += m_surf.get_triangle_normal(t) * (m_surf.m_mesh.m_triangle_labels[t][0] < m_surf.m_mesh.m_triangle_labels[t][1] ? -1 : 1);
+    }
+    n0 /= mag(n0);
+    Vec3d n1 = Vec3d(0, 0, 0);  // liquid outward normal
+    for (size_t i = 0; i < m_surf.m_mesh.m_edge_to_triangle_map[edge1].size(); i++)
+    {
+        size_t t = m_surf.m_mesh.m_edge_to_triangle_map[edge1][i];
+        n1 += m_surf.get_triangle_normal(t) * (m_surf.m_mesh.m_triangle_labels[t][0] < m_surf.m_mesh.m_triangle_labels[t][1] ? -1 : 1);
+    }
+    n1 /= mag(n1);
+    bool snap_is_liquid_sheet_puncture = (dot(normal, n0) > 0.5 && dot(normal, n1) < -0.5);
+    
+    double merge_proximity_epsilon = (snap_is_liquid_sheet_puncture ? m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture : m_surf.m_merge_proximity_epsilon);
+    
+    if(current_length < merge_proximity_epsilon) {
         
         //check for "dimensional drop-down" cases which would lead to snapping two vertices that already share an edge.
         if(s0 > 1 - m_edge_threshold) {
@@ -856,7 +1095,20 @@ bool MeshSnapper::face_vertex_pair_is_snappable( size_t face, size_t vertex, dou
                                    m_surf.get_position(face_data[2]),
                                    current_length, s0, s1, s2, normal );
     
-    if(current_length < m_surf.m_merge_proximity_epsilon) {
+    // for Droplets: use a different (smaller) merging proximity epsilon for liquid sheet puncture, if enabled (on the other hand, merging of two liquid volumes uses the original epsilon)
+    Vec3d n0 = Vec3d(0, 0, 0);  // liquid outward normal
+    for (size_t i = 0; i < m_surf.m_mesh.m_vertex_to_triangle_map[vertex].size(); i++)
+    {
+        size_t t = m_surf.m_mesh.m_vertex_to_triangle_map[vertex][i];
+        n0 += m_surf.get_triangle_normal(t) * (m_surf.m_mesh.m_triangle_labels[t][0] < m_surf.m_mesh.m_triangle_labels[t][1] ? -1 : 1);
+    }
+    n0 /= mag(n0);
+    Vec3d n1 = m_surf.get_triangle_normal(face_data);
+    bool snap_is_liquid_sheet_puncture = (dot(normal, n0) > 0.5 && dot(normal, n1) < -0.5);
+    
+    double merge_proximity_epsilon = (snap_is_liquid_sheet_puncture ? m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture : m_surf.m_merge_proximity_epsilon);
+    
+    if(current_length < merge_proximity_epsilon) {
         
         //anticipate the case where we would drop down to vertex snapping
         //but there is already a connecting edge. That should be an edge collapse, not a snap.
@@ -886,7 +1138,7 @@ bool MeshSnapper::snap_pass()
     if ( m_surf.m_verbose )
     {
         std::cout << "\n\n\n---------------------- MeshSnapper: collapsing ----------------------" << std::endl;
-        std::cout << "m_merge_proximity_epsilon: " << m_surf.m_merge_proximity_epsilon;
+        std::cout << "m_merge_proximity_epsilon: " << m_surf.m_merge_proximity_epsilon << ", " << m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture << std::endl;
         
     }
     
@@ -907,8 +1159,8 @@ bool MeshSnapper::snap_pass()
         
         Vec3d vmin, vmax;
         m_surf.vertex_static_bounds(vertex, vmin, vmax);
-        vmin -= m_surf.m_merge_proximity_epsilon * Vec3d(1,1,1);
-        vmax += m_surf.m_merge_proximity_epsilon * Vec3d(1,1,1);
+        vmin -= std::max(m_surf.m_merge_proximity_epsilon, m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture) * Vec3d(1,1,1);
+        vmax += std::max(m_surf.m_merge_proximity_epsilon, m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture) * Vec3d(1,1,1);
         
         std::vector<size_t> overlapping_tris;
         m_surf.m_broad_phase->get_potential_triangle_collisions(vmin, vmax, false, true, overlapping_tris);
@@ -932,8 +1184,8 @@ bool MeshSnapper::snap_pass()
         
         Vec3d vmin, vmax;
         m_surf.edge_static_bounds(edge0, vmin, vmax);
-        vmin -= m_surf.m_merge_proximity_epsilon * Vec3d(1,1,1);
-        vmax += m_surf.m_merge_proximity_epsilon * Vec3d(1,1,1);
+        vmin -= std::max(m_surf.m_merge_proximity_epsilon, m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture) * Vec3d(1,1,1);
+        vmax += std::max(m_surf.m_merge_proximity_epsilon, m_surf.m_merge_proximity_epsilon_for_liquid_sheet_puncture) * Vec3d(1,1,1);
         
         std::vector<size_t> overlapping_edges;
         m_surf.m_broad_phase->get_potential_edge_collisions(vmin, vmax, false, true, overlapping_edges);
@@ -1015,8 +1267,6 @@ bool MeshSnapper::snap_pass()
         { 
             if (m_surf.m_mesheventcallback)
                 m_surf.m_mesheventcallback->log() << "snap successful" << std::endl;
-            // clean up degenerate triangles and tets
-            m_surf.trim_degeneracies( m_surf.m_dirty_triangles );          
         }
         else if(attempted) {
             if (m_surf.m_mesheventcallback)

@@ -665,6 +665,10 @@ Vec3d MeshSmoother::get_smoothing_displacement_naive( size_t v,
 
 bool MeshSmoother::null_space_smoothing_pass( double dt )
 {
+    void * data = nullptr;
+    if (m_surf.m_mesheventcallback)
+        m_surf.m_mesheventcallback->pre_smoothing(m_surf, &data);
+
     if ( m_surf.m_verbose )
     {
         std::cout << "---------------------- Los Topos: vertex redistribution ----------------------" << std::endl;
@@ -829,7 +833,7 @@ bool MeshSmoother::null_space_smoothing_pass( double dt )
     }
     
     if (m_surf.m_mesheventcallback)
-        m_surf.m_mesheventcallback->smoothing(m_surf);
+        m_surf.m_mesheventcallback->post_smoothing(m_surf, data);
     
     return !converged;
 }

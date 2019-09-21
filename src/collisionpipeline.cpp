@@ -207,6 +207,7 @@ void CollisionPipeline::apply_impulse( const Vec4d& alphas,
         
         denom += normal[j] * normal[j] * (s0 * s0 * inv_m0 + s1 * s1 * inv_m1 + s2 * s2 * inv_m2 + s3 * s3 * inv_m3);
     }
+    if (denom == 0) std::cout << "denom = 0: impulse_magnitude = " << impulse_magnitude << " vertices = " << e0 << " " << e1 << " " << e2 << " " << e3 << " s = " << s0 << " " << s1 << " " << s2 << " " << s3 << " normal = " << normal << " masses = " << m_surface.m_masses[e0] << "; " << m_surface.m_masses[e1] << "; " << m_surface.m_masses[e2] << "; " << m_surface.m_masses[e3] << std::endl;
     
     double i = impulse_magnitude / denom;
     

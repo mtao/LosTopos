@@ -54,13 +54,13 @@ public:
     bool collapse_pass();
     
     
-    /// Minimum edge length.  Edges shorter than this will be collapsed.
-    ///
-    double m_min_edge_length;  
-
-    /// Maximum edge length.  Edges longer than this will not be collapsed.
-    ///
-    double m_max_edge_length; 
+//    /// Minimum edge length.  Edges shorter than this will be collapsed.
+//    ///
+//    double m_min_edge_length;  
+//
+//    /// Maximum edge length.  Edges longer than this will not be collapsed.
+//    ///
+//    double m_max_edge_length; 
     
     /// Whether to scale by curvature when computing edge lengths, in order to coarsen low-curvature regions
     ///
@@ -128,15 +128,7 @@ private:
     bool collapse_edge_introduces_bad_angle( size_t source_vertex, 
                                             size_t destination_vertex, 
                                             const Vec3d& vertex_new_position);
-    
-    /// Delete an edge by moving its source vertex to its destination vertex
-    ///
-    bool collapse_edge( size_t edge );
-    
-    /// Determine if the edge should be allowed to collapse
-    ///
-    bool edge_is_collapsible( size_t edge_index, double& cur_length );
-    
+
     /// Test if the result of a collapse will contain an irregular vertex that t1 may resolve
     ///
     bool collapse_will_produce_irregular_junction(size_t edge);
@@ -149,6 +141,16 @@ private:
     //Experimental edge collapser that decides features based on edge dihedral angles.
     bool get_new_vertex_position_dihedral(Vec3d& new_vertex_position, size_t& vert_to_keep, size_t& vert_to_delete, const size_t& edge, Vec3c& new_vert_solid_label);
 
+
+public:
+    /// Delete an edge by moving its source vertex to its destination vertex
+    ///
+    bool collapse_edge( size_t edge );
+    
+    /// Determine if the edge should be allowed to collapse
+    ///
+    bool edge_is_collapsible( size_t edge_index, double& cur_length );
+    
 };
 
 }

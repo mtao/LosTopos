@@ -59,15 +59,14 @@ public:
     bool large_angle_split_pass();
     
 
-    /// Maximum edge length.  Edges longer than this will be subdivided.
-    ///
-    double m_max_edge_length; 
+//    /// Maximum edge length.  Edges longer than this will be subdivided.
+//    ///
+//    double m_max_edge_length; 
+//    
+//    /// Minimum edge length.  Edges at or below this length should not be split.
+//    ///
+//    double m_min_edge_length;
     
-    /// Minimum edge length.  Edges at or below this length should not be split.
-    ///
-
-    double m_min_edge_length;
-
     /// Whether to scale by curvature when computing edge lengths, in order to refine high-curvature regions
     ///
     bool m_use_curvature;
@@ -119,11 +118,11 @@ private:
 public:
     /// Determine if edge should be allowed to be split
     ///    
-    bool edge_is_splittable( size_t edge_index );
+    bool edge_is_splittable( size_t edge_index, bool ignore_min_length = false );
     
     /// Split an edge, using subdivision_scheme to determine the new vertex location, if safe to do so.
     ///
-    bool split_edge( size_t edge, size_t& result_vert, bool ignore_bad_angles = false, bool specify_split_position = false, Vec3d const * pos = 0, const std::vector<size_t> & ignore_vertices = std::vector<size_t>());
+    bool split_edge( size_t edge, size_t& result_vert, bool ignore_bad_angles = false, bool specify_split_position = false, Vec3d const * pos = 0, const std::vector<size_t> & ignore_vertices = std::vector<size_t>(), bool ignore_min_length = false);
     
 };
 

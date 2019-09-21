@@ -21,6 +21,7 @@
 #include "LosTopos/meshcutter.h"
 #include "LosTopos/t1transition.h"
 #include "LosTopos/meshsnapper.h"
+#include <optional>
 
 // ---------------------------------------------------------
 //  Forwards and typedefs
@@ -74,6 +75,26 @@ struct SurfTrackInitializationParameters
     ///
     double m_improve_collision_epsilon = 2e-6;
     
+    /// The min edge length for a given vertex, as a ratio to its target edge length (e.g. for the old LosTopos this is typically 0.5)
+    ///
+    double m_min_to_target_ratio;
+    
+    /// The max edge length for a given vertex, as a ratio to its target edge length (e.g. for the old LosTopos this is typically 1.5)
+    ///
+    double m_max_to_target_ratio;
+
+    /// The coefficient for the curvature's effect on target edge length: target <= coef / max(abs(kappa))
+    ///
+    double m_target_edge_length_coef_curvature;
+    
+    /// The coefficient for the velocity's effect on target edge length: target <= coef / ||laplacian v||
+    ///
+    double m_target_edge_length_coef_velocity;
+    
+    /// The upper bound of the ratio between the target edge lengths on adjacent vertices, used in the grading field smoothing step to eliminate abrupt spatial variation of the target edge length
+    ///
+    double m_max_adjacent_target_edge_length_ratio;
+
     /// Whether to set the min and max edge lengths as fractions of the initial average edge length
     ///
     bool m_use_fraction = false;
@@ -81,13 +102,21 @@ struct SurfTrackInitializationParameters
     // If use_fraction is true, the following three values are taken to be fractions of the average edge length of the new surface.
     // If use_fraction is false, these are absolute.
     
-    /// Smallest edge length allowed
+    /// In the isotropic adaptive scenario every vertex has a target edge length (from which the min and max are computed) determined by its (scalar) grading field. This parameter specifies the lower bound.
     ///
-    std::optional<double> m_min_edge_length;//must be active but has no default!
+    std::optional<double> m_min_target_edge_length;//must be active but has no default!
     
-    /// Longest edge length allowed
+    /// In the isotropic adaptive scenario every vertex has a target edge length (from which the min and max are computed) determined by its (scalar) grading field. This parameter specifies the upper bound.
     ///
-    std::optional<double> m_max_edge_length;//must be active but has no default!
+    std::optional<double> m_max_target_edge_length;
+    
+    /// set true to use the adaptive remeshing (based on curvature and velocity) for solid interior too; set false to always use a very coarse target edge length for solid.
+    ///
+    bool m_refine_solid = true;
+    
+    /// set true to use the adaptive remeshing (based on curvature and velocity) for triple junction, which typically results in fine subdivisions depending on the contact angle; set false to always use m_max_target_edge_length regardless of curvature/velocity.
+    ///
+    bool m_refine_triple_junction = true;
     
     /// Maximum change in volume allowed for one operation
     ///
@@ -134,6 +163,10 @@ struct SurfTrackInitializationParameters
     ///
     double m_merge_proximity_epsilon = 1e-5;
     
+    /// For Droplets: A different (typically smaller than or same as m_merge_proximity_epsilon) merging epsilon for liquid sheet puncture: it is harder for a liquid sheet to puncture than it is for an air sheet
+    ///
+    double m_merge_proximity_epsilon_for_liquid_sheet_puncture;
+
     /// Type of subdivision to use when collapsing or splitting (butterfly, quadric error minimization, etc.)
     ///
     SubdivisionScheme *m_subdivision_scheme = nullptr;   
@@ -199,6 +232,16 @@ double m_length;
 
 };
 
+// used to build a heap of vertices where the vertex with shortest target edge length can be retrieved (for the gradint field smoothing)
+struct SortableVertex
+{
+    SortableVertex(size_t _v, double _l) : v(_v), l(_l) { }
+    
+    bool operator < (const SortableVertex & other) const { return this->l > other.l; }  // for use on an STL heap, which returns the largest value instead of the smallest.
+    
+    size_t v;
+    double l;
+};
 
 // ---------------------------------------------------------
 ///
@@ -246,8 +289,8 @@ struct SortableProximity
    SortableProximity( size_t face, size_t vertex, double sep_dist, bool isFaceVert ) : 
       m_index0(face),
       m_index1(vertex), 
-      m_length(sep_dist),
-      m_face_vert_proximity(isFaceVert)
+      m_face_vert_proximity(isFaceVert),
+      m_length(sep_dist)
    {
    }
 
@@ -493,6 +536,9 @@ public:
     /// Remove deleted vertices and triangles from the mesh data structures
     ///
     void defrag_mesh();
+    void defrag_mesh_from_scratch(std::vector<size_t> & vertices_to_be_mapped);
+    void defrag_mesh_from_scratch_manual(std::vector<size_t> & vertices_to_be_mapped);
+    void defrag_mesh_from_scratch_copy(std::vector<size_t> & vertices_to_be_mapped);
 
     /// Check for labels with -1 as their value, or the same label on both sides.
     /// 
@@ -536,6 +582,27 @@ public:
     bool triangle_with_bad_angle(size_t triangle);
     bool any_triangles_with_bad_angles();
 
+    /// Compute the target edge length for one vertex
+    ///
+    double compute_vertex_target_edge_length(size_t vertex);
+    
+    /// Compute all target edge lengths, ensuring spatial smoothness
+    ///
+    void compute_all_vertex_target_edge_lengths();
+    
+    double vertex_target_edge_length(size_t v) const { assert(m_target_edge_lengths[v] > 0); return m_target_edge_lengths[v]; }
+    double edge_target_edge_length(size_t e) const { return std::min(vertex_target_edge_length(m_mesh.m_edges[e][0]), vertex_target_edge_length(m_mesh.m_edges[e][1])); }
+    
+    double vertex_min_edge_length(size_t v) const { return vertex_target_edge_length(v) * m_min_to_target_ratio; }
+    double vertex_max_edge_length(size_t v) const { return vertex_target_edge_length(v) * m_max_to_target_ratio; }
+    double edge_min_edge_length  (size_t e) const { return edge_target_edge_length(e)   * m_min_to_target_ratio; }
+    double edge_max_edge_length  (size_t e) const { return edge_target_edge_length(e)   * m_max_to_target_ratio; }
+
+    /// Utility to compute the discrete (integral) laplacian of a given quantity at a vertex (using the cotan formula). Returns the laplacian value and the sum of weights (which is useful in the case of solving a Laplace's equation)
+    ///
+    template<class T>
+    std::pair<T, double> laplacian(size_t vertex, const std::vector<T> & data) const;
+    
     //
     // Member variables
     //
@@ -590,18 +657,51 @@ public:
     ///
     double m_max_volume_change;
     
-    /// Minimum edge length.  Edges shorter than this will be collapsed.
+    /// Minimum target edge length of the whole mesh.
     ///
-    double m_min_edge_length;   
+    double m_min_target_edge_length;
     
-    /// Maximum edge length.  Edges longer than this will be subdivided.
+    /// Maximum target edge length of the whole mesh.
     ///
-    double m_max_edge_length;   
+    double m_max_target_edge_length;
+    
+    /// set true to use the adaptive remeshing (based on curvature and velocity) for solid interior too; set false to always use a very coarse target edge length for solid.
+    ///
+    bool m_refine_solid;
+    
+    /// set true to use the adaptive remeshing (based on curvature and velocity) for triple junction, which typically results in fine subdivisions depending on the contact angle; set false to always use m_max_target_edge_length regardless of curvature/velocity.
+    ///
+    bool m_refine_triple_junction;
+    
+    /// Local ratio between min/max edge length and the target edge length at a vertex. Edges incident to this vertex out of this range will be collapsed/split.
+    ///
+    double m_min_to_target_ratio;
+    double m_max_to_target_ratio;
+    
+    /// The target edge length for each vertex
+    ///
+    std::vector<double> m_target_edge_lengths;
+    
+    /// The coefficient for the curvature's effect on target edge length: target <= coef / max(abs(kappa))      (coef is dimensionless)
+    ///
+    double m_target_edge_length_coef_curvature;
+    
+    /// The coefficient for the velocity's effect on target edge length: target <= coef / ||laplacian v||       (coef has unit s^-1 and the user is responsible for folding the time step into it)
+    ///
+    double m_target_edge_length_coef_velocity;
+    
+    /// The upper bound of the ratio between the target edge lengths on adjacent vertices, used in the grading field smoothing step to eliminate abrupt spatial variation of the target edge length
+    ///
+    double m_max_adjacent_target_edge_length_ratio;
     
     /// Elements within this distance will trigger a merge attempt
     ///
     double m_merge_proximity_epsilon;
-    
+
+    /// For Droplets: A different (typically smaller) merging epsilon for liquid sheet puncture: it is harder for a liquid sheet to puncture than it is for an air sheet
+    ///
+    double m_merge_proximity_epsilon_for_liquid_sheet_puncture;
+
     /// Try to prevent triangles with area less than this
     ///
     double m_min_triangle_area;
@@ -652,7 +752,7 @@ public:
 
     /// Flag that dictates whether to aggressively pursue good angles for only the worst offenders.
     /// 
-    bool m_aggressive_mode = false;
+    bool m_aggressive_mode;
 
     /// boolean, whether to allow vertices to move during collapses (i.e. use points other than the endpoints)
     int m_allow_vertex_movement_during_collapse;
@@ -679,13 +779,27 @@ public:
     class MeshEventCallback
     {
     public:
-        virtual void collapse(const SurfTrack & st, size_t e) { }
-        virtual void split(const SurfTrack & st, size_t e) { }
-        virtual void flip(const SurfTrack & st, size_t e) { }
-        virtual void t1(const SurfTrack & st, size_t v) { }
-        virtual void facesplit(const SurfTrack & st, size_t f) { }
-        virtual void snap(const SurfTrack & st, size_t v0, size_t v1) { }
-        virtual void smoothing(const SurfTrack & st) { }
+        virtual void pre_collapse(const SurfTrack & st, size_t e, void ** data) { }
+        virtual void post_collapse(const SurfTrack & st, size_t e, size_t merged_vertex, void * data) { }
+
+        virtual void pre_split(const SurfTrack & st, size_t e, void ** data) { }
+        virtual void post_split(const SurfTrack & st, size_t e, size_t new_vertex, void * data) { }
+
+        virtual void pre_flip(const SurfTrack & st, size_t e, void ** data) { }
+        virtual void post_flip(const SurfTrack & st, size_t e, void * data) { }
+
+        virtual void pre_t1(const SurfTrack & st, size_t v, void ** data) { }
+        virtual void post_t1(const SurfTrack & st, size_t v, size_t a, size_t b, void * data) { }
+
+        virtual void pre_facesplit(const SurfTrack & st, size_t f, void ** data) { }
+        virtual void post_facesplit(const SurfTrack & st, size_t f, size_t new_vertex, void * data) { }
+
+        virtual void pre_snap(const SurfTrack & st, size_t v0, size_t v1, void ** data) { }
+        virtual void post_snap(const SurfTrack & st, size_t v_kept, size_t v_deleted, void * data) { }
+
+        virtual void pre_smoothing(const SurfTrack & st, void ** data) { }
+        virtual void post_smoothing(const SurfTrack & st, void * data) { }
+
         virtual std::ostream & log() { return std::cout; }
     };
     
@@ -698,9 +812,13 @@ public:
         
         virtual bool generate_split_position(SurfTrack & st, size_t v0, size_t v1, Vec3d & pos) = 0;
         
+        virtual bool generate_snapped_position(SurfTrack & st, size_t v0, size_t v1, Vec3d & pos) = 0;
+        
         virtual Vec3c generate_collapsed_solid_label(SurfTrack & st, size_t v0, size_t v1, const Vec3c & label0, const Vec3c & label1) = 0;
         
         virtual Vec3c generate_split_solid_label(SurfTrack & st, size_t v0, size_t v1, const Vec3c & label0, const Vec3c & label1) = 0;
+        
+        virtual Vec3c generate_snapped_solid_label(SurfTrack & st, size_t v0, size_t v1, const Vec3c & label0, const Vec3c & label1) = 0;
         
         virtual bool generate_edge_popped_positions(SurfTrack & st, size_t oldv, const Vec2i & cut, Vec3d & pos_upper, Vec3d & pos_lower) = 0;
         
@@ -719,11 +837,11 @@ public:
     ///    
     std::vector<TriangleUpdateEvent> m_triangle_change_history;
     
-    /// Map of triangle indices, mapping pre-defrag triangle indices to post-defrag indices
+    /// Map of triangle indices, mapping pre-defrag triangle indices to post-defrag indices (deprecated; see defrag_mesh())
     ///
     std::vector<Vec2st> m_defragged_triangle_map;
     
-    /// Map of vertex indices, mapping pre-defrag vertex indices to post-defrag indices
+    /// Map of vertex indices, mapping pre-defrag vertex indices to post-defrag indices (deprecated; see defrag_mesh())
     ///
     std::vector<Vec2st> m_defragged_vertex_map;
 

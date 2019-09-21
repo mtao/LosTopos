@@ -448,6 +448,10 @@ bool EdgeFlipper::flip_edge( size_t edge,
     
     // Okay, now do the actual operation
     
+    void * data = NULL;
+    if (m_surf.m_mesheventcallback)
+        m_surf.m_mesheventcallback->pre_flip(m_surf, edge, &data);
+
     // Start history log
     MeshUpdateEvent flip(MeshUpdateEvent::EDGE_FLIP);
     flip.m_v0 = edge_vertices[0];
@@ -508,8 +512,10 @@ bool EdgeFlipper::flip_edge( size_t edge,
     
     m_surf.m_mesh_change_history.push_back(flip);
     
+    m_surf.trim_degeneracies( m_surf.m_dirty_triangles );
+
     if (m_surf.m_mesheventcallback)
-        m_surf.m_mesheventcallback->flip(m_surf, edge);
+        m_surf.m_mesheventcallback->post_flip(m_surf, edge, data);
     
     return true;
     
@@ -821,11 +827,6 @@ bool EdgeFlipper::flip_pass( )
         flip_occurred_ever |= flip_occurred;
     }
     
-    
-    if ( flip_occurred_ever )
-    {
-        m_surf.trim_degeneracies( m_surf.m_dirty_triangles );
-    }
     
     return flip_occurred_ever;
     
