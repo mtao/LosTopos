@@ -1,6 +1,10 @@
 #ifndef BLAS_WRAPPER_H
 #define BLAS_WRAPPER_H
 
+#if !defined(USE_FORTRAN_BLAS) && !defined(USE_AMD_BLAS)
+#define USE_CBLAS
+#endif
+
 #include <cassert>
 #include <cmath>
 #include <cstring>

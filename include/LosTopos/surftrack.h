@@ -487,6 +487,10 @@ public:
     ///
     SurfTrack(const std::vector<Vec3d>& vs, 
               const std::vector<Vec3st>& ts,
+              const std::vector<Vec3d>& masses,
+              const SurfTrackInitializationParameters& initial_parameters );
+    SurfTrack(const std::vector<Vec3d>& vs, 
+              const std::vector<Vec3st>& ts,
               const std::vector<Vec2i>& labels,
               const std::vector<Vec3d>& masses,
               const SurfTrackInitializationParameters& initial_parameters );
@@ -536,6 +540,7 @@ public:
     /// Remove deleted vertices and triangles from the mesh data structures
     ///
     void defrag_mesh();
+    void defrag_mesh_from_scratch();
     void defrag_mesh_from_scratch(std::vector<size_t> & vertices_to_be_mapped);
     void defrag_mesh_from_scratch_manual(std::vector<size_t> & vertices_to_be_mapped);
     void defrag_mesh_from_scratch_copy(std::vector<size_t> & vertices_to_be_mapped);

@@ -108,6 +108,12 @@ m_verbose(false)
 
 SurfTrack::SurfTrack( const std::vector<Vec3d>& vs,
                      const std::vector<Vec3st>& ts,
+                     const std::vector<Vec3d>& masses,
+                     const SurfTrackInitializationParameters& initial_parameters ) :
+    SurfTrack(vs,ts,std::vector<Vec2i>(ts.size(),Vec2i(0,1)),masses,initial_parameters) {}
+
+SurfTrack::SurfTrack( const std::vector<Vec3d>& vs,
+                     const std::vector<Vec3st>& ts,
                      const std::vector<Vec2i>& labels,
                      const std::vector<Vec3d>& masses,
                      const SurfTrackInitializationParameters& initial_parameters ) :
@@ -515,6 +521,12 @@ void SurfTrack::defrag_mesh( )
         rebuild_continuous_broad_phase();
     }
     
+}
+
+void SurfTrack::defrag_mesh_from_scratch()
+{
+    std::vector<size_t> empty;
+    defrag_mesh_from_scratch(empty);
 }
 
 void SurfTrack::defrag_mesh_from_scratch(std::vector<size_t> & vertices_to_be_mapped)
