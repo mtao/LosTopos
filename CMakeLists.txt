@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.10.1)
 project(LosTopos)
-add_definitions(-DUSE_FORTRAN_BLAS)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,7 +20,6 @@ find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
 
 add_library(LosTopos SHARED ${Headers} ${Sources})
-target_include_directories(LosTopos PRIVATE ${GLUT_INCLUDE_DIR})
 target_include_directories(LosTopos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries (LosTopos ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 target_link_options(LosTopos PRIVATE ${BLAS_LINKER_FLAGS} ${LAPACK_LINKER_FLAGS})

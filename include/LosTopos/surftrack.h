@@ -165,7 +165,7 @@ struct SurfTrackInitializationParameters
     
     /// For Droplets: A different (typically smaller than or same as m_merge_proximity_epsilon) merging epsilon for liquid sheet puncture: it is harder for a liquid sheet to puncture than it is for an air sheet
     ///
-    double m_merge_proximity_epsilon_for_liquid_sheet_puncture;
+    double m_merge_proximity_epsilon_for_liquid_sheet_puncture = 1e-5;
 
     /// Type of subdivision to use when collapsing or splitting (butterfly, quadric error minimization, etc.)
     ///
