@@ -29,7 +29,7 @@ message(STATUS "${OPENGL_LIBRARIES}")
 add_library(LosTopos SHARED ${Headers} ${Sources})
 target_compile_definitions(LosTopos PUBLIC -DUSE_CBLAS)
 target_include_directories(LosTopos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${GLUT_INCLUDE_DIR})
-target_link_libraries (LosTopos ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} OpenGL::GL OpenGL::GLU OpenGL ${GLUT_LIBRARIES})
+target_link_libraries (LosTopos ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} OpenGL::GL OpenGL::GLU OpenGL ${GLUT_LIBRARIES} cblas)
 target_link_options(LosTopos PRIVATE ${BLAS_LINKER_FLAGS} ${LAPACK_LINKER_FLAGS})
 
 
