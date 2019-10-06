@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <cmath>
 #include <fstream>
-#include "LosTopos/common/gluvi.h"
 
 #include "LosTopos/nondestructivetrimesh.h"
 #include "LosTopos/common/bfstream.h"
@@ -1065,6 +1064,7 @@ bool write_ribfile(const NonDestructiveTriMesh &mesh, const std::vector<float> &
 ///
 // ---------------------------------------------------------
 
+/*
 bool output_shadow_rib( Gluvi::Target3D& light, const std::vector<Vec3d>& positions, const NonDestructiveTriMesh& mesh, const char *filename_format, ...)
 {
    va_list ap;
@@ -1155,6 +1155,7 @@ bool output_shadow_rib( Gluvi::Target3D& light, const std::vector<Vec3d>& positi
    
    return true;
 }   
+*/
 
 // ---------------------------------------------------------
 ///
@@ -1164,6 +1165,7 @@ bool output_shadow_rib( Gluvi::Target3D& light, const std::vector<Vec3d>& positi
 
 bool output_rib( const std::vector<Vec3d>& positions, const NonDestructiveTriMesh& mesh, const char *filename_format, ...)
 {
+    /*
    va_list ap;
    va_start(ap, filename_format);
    
@@ -1249,20 +1251,18 @@ bool output_rib( const std::vector<Vec3d>& positions, const NonDestructiveTriMes
    
    out << "LightSource \"ambientlight\" 1 \"intensity\" .3 \"lightcolor\" [1 1 1]\n";
    
-   /*
-    for ( unsigned int i = 0; i < lights.size(); ++i )
-    {
-    // compute location of light
-    Vec3f light_pos( 0, 0, lights[i].dist );
-    rotate( light_pos, lights[i].pitch, Vec3f(1,0,0) );
-    rotate( light_pos, lights[i].heading, Vec3f(0,1,0) );
-    light_pos += Vec3f( lights[i].target[0], lights[i].target[1], lights[i].target[2] );
-    
-    std::cout << "light position: " << light_pos << std::endl;
-    
-    out << "LightSource \"singleshadowpoint\" 2 \"intensity\" 30 \"from\" [" << light_pos << "] \"shadowmap\" \"" << shadow_filename << "\"\n";
-    }
-    */
+    //for ( unsigned int i = 0; i < lights.size(); ++i )
+    //{
+    //// compute location of light
+    //Vec3f light_pos( 0, 0, lights[i].dist );
+    //rotate( light_pos, lights[i].pitch, Vec3f(1,0,0) );
+    //rotate( light_pos, lights[i].heading, Vec3f(0,1,0) );
+    //light_pos += Vec3f( lights[i].target[0], lights[i].target[1], lights[i].target[2] );
+    //
+    //std::cout << "light position: " << light_pos << std::endl;
+    //
+    //out << "LightSource \"singleshadowpoint\" 2 \"intensity\" 30 \"from\" [" << light_pos << "] \"shadowmap\" \"" << shadow_filename << "\"\n";
+    //}
    
    //out << "LightSource \"distantlight\" 3 \"intensity\" 0.3 \"from\" [-5 -10 20] \"to\" [0 0 0]\n";
    
@@ -1302,6 +1302,8 @@ bool output_rib( const std::vector<Vec3d>& positions, const NonDestructiveTriMes
    out.close();
    
    return true;
+   */
+   return false;
 }
 
 // ---------------------------------------------------------

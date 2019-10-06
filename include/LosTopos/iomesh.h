@@ -26,10 +26,6 @@ namespace LosTopos{
 class NonDestructiveTriMesh;
 }
 
-namespace Gluvi
-{
-   struct Target3D;
-}
 
 // ---------------------------------------------------------
 //  Interface declarations
@@ -77,7 +73,7 @@ bool write_ribfile(const LosTopos::NonDestructiveTriMesh &mesh, const std::vecto
 ///
 // ---------------------------------------------------------
 
-bool output_shadow_rib( Gluvi::Target3D& light, const std::vector<LosTopos::Vec3d>& positions,  const LosTopos::NonDestructiveTriMesh& mesh, const char *filename_format, ...);
+//bool output_shadow_rib( Gluvi::Target3D& light, const std::vector<LosTopos::Vec3d>& positions,  const LosTopos::NonDestructiveTriMesh& mesh, const char *filename_format, ...);
 
 // ---------------------------------------------------------
 ///
