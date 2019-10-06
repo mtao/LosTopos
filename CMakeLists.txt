@@ -12,7 +12,6 @@ set (Directories
  LosTopos3D
 )
 
-target_compile_definitions(LosTopos PUBLIC -DUSE_FORTRAN_BLAS)
 #FILE(GLOB_RECURSE Headers  RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/common *.h)
 FILE(GLOB_RECURSE Headers  ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 FILE(GLOB_RECURSE Sources ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
@@ -23,5 +22,6 @@ add_library(LosTopos SHARED ${Headers} ${Sources})
 target_include_directories(LosTopos PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries (LosTopos ${BLAS_LIBRARIES})
 
+target_compile_definitions(LosTopos PUBLIC -DUSE_FORTRAN_BLAS)
 
 target_link_options(LosTopos PRIVATE ${BLAS_LINKER_FLAGS})
