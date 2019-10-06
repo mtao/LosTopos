@@ -12,6 +12,7 @@ set (Directories
  LosTopos3D
 )
 
+target_compile_definitions(LosTopos PUBLIC -DUSE_FORTRAN_BLAS)
 #FILE(GLOB_RECURSE Headers  RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/common *.h)
 FILE(GLOB_RECURSE Headers  ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h)
 FILE(GLOB_RECURSE Sources ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
